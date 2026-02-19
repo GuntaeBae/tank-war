@@ -901,9 +901,47 @@ function init() {
     const startScreen = document.getElementById('startScreen');
     const gameTitle = document.getElementById('gameTitle');
 
+    // 홈 버튼 생성 (게임 중 초기 화면으로 돌아가기)
+    const homeBtn = document.createElement('button');
+    homeBtn.textContent = '🏠';
+    homeBtn.style.position = 'absolute';
+    homeBtn.style.top = '20px';
+    homeBtn.style.left = '20px';
+    homeBtn.style.fontSize = '24px';
+    homeBtn.style.padding = '5px 10px';
+    homeBtn.style.cursor = 'pointer';
+    homeBtn.style.backgroundColor = 'rgba(255, 255, 255, 0.8)';
+    homeBtn.style.border = '2px solid #333';
+    homeBtn.style.borderRadius = '10px';
+    homeBtn.style.zIndex = '1000';
+    homeBtn.style.display = 'none'; // 초기에는 숨김
+    homeBtn.title = "초기 화면으로";
+    document.body.appendChild(homeBtn);
+
+    homeBtn.addEventListener('click', () => {
+        if (confirm('게임을 종료하고 초기 화면으로 돌아가시겠습니까?')) {
+            if (animationFrameId) cancelAnimationFrame(animationFrameId);
+            gameOver = true; // 진행 중인 로직 중단용
+            gameStarted = false;
+            startScreen.style.display = 'flex';
+            if (gameTitle) gameTitle.style.display = 'block';
+            gameOverScreen.style.display = 'none';
+            homeBtn.style.display = 'none';
+            displayRankings();
+        }
+    });
+
     displayRankings();
 
     const handleStart = (mode) => {
+        // 게임 시작 버튼 클릭 시 전체 화면 모드로 전환 시도
+        if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
+            document.documentElement.requestFullscreen().catch(err => {
+                // 사용자가 거부하거나 전환 실패 시 에러 로그 (게임 진행에는 영향 없음)
+                console.log(`전체 화면 전환 실패: ${err.message}`);
+            });
+        }
+
         soundManager.init();
         startScreen.style.display = 'none';
         if (gameTitle) gameTitle.style.display = 'none';
@@ -914,6 +952,7 @@ function init() {
         canvas.height = window.innerHeight;
         startGame(canvas.width, canvas.height, mode);
         updateSkillUI();
+        homeBtn.style.display = 'block';
     };
 
     if (pvpBtn) {
@@ -932,6 +971,7 @@ function init() {
             startScreen.style.display = 'flex'; // Go back to start screen
             if (gameTitle) gameTitle.style.display = 'block';
             gameStarted = false;
+            homeBtn.style.display = 'none';
             displayRankings();
             // Or restart same mode:
             // startGame(width, height, gameMode);
