@@ -11,9 +11,8 @@ HTML5 Canvas와 JavaScript로 구현된 고전 아케이드 스타일의 탱크 
 
 ## 📸 스크린샷
 
-*(여기에 게임 플레이 스크린샷을 추가하세요)*
-
-![Game Screenshot](path/to/screenshot.png)
+![Game Screenshot 0](screenshot0.png)
+![Game Screenshot 1](screenshot1.png)
 
 ## 🎮 게임 방법
 
