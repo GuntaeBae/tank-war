@@ -253,6 +253,7 @@ class Tank {
             ctx.drawImage(this.cacheCanvas, -this.width / 2, -this.height/2, this.width, this.height);
         }
 
+
         // Draw Wheels
         this.drawWheels();
 
@@ -1264,11 +1265,9 @@ function setupControls() {
 
     const cameraToggleBtn = document.getElementById('cameraToggleBtn');
     if (cameraToggleBtn) {
-        cameraToggleBtn.addEventListener('click', () => {
-            cameraFollowsProjectile = !cameraFollowsProjectile;
-            cameraToggleBtn.textContent = cameraFollowsProjectile ? "카메라: 추적" : "카메라: 고정";
-            cameraToggleBtn.blur(); // 버튼 포커스 해제 (키보드 조작 방해 방지)
-        });
+        cameraFollowsProjectile = !cameraFollowsProjectile;
+        cameraToggleBtn.textContent = cameraFollowsProjectile ? "카메라: 추적" : "카메라: 고정";
+        cameraToggleBtn.blur(); // 버튼 포커스 해제 (키보드 조작 방해 방지)
     }
 
     const settingsBtn = document.getElementById('settingsBtn');
@@ -1285,7 +1284,6 @@ function setupControls() {
             settingsModal.style.display = 'none';
         });
     }
-
     // Mobile Controls
     const btnLeft = document.getElementById('btnLeft');
     const btnRight = document.getElementById('btnRight');
