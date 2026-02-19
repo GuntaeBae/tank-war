@@ -102,6 +102,7 @@ const soundManager = {
 // ---------------------------------
 const gravity = 0.1;
 let wind = 0;
+let turnCount = 0;
 let currentPlayer = 1;
 let gameOver = false;
 let gameStarted = false;
@@ -152,6 +153,8 @@ class Tank {
         this.wheelOffsets = [-20, -7, 6, 19];
         this.vy = 0;
         this.onGround = true;
+        this.shield = false;
+        this.cooldowns = { shield: 0, double: 0 };
         
         // NPC Stats
         this.accuracy = 0; // Error range in degrees
@@ -235,6 +238,17 @@ class Tank {
             ctx.fillStyle = '#FF4500';
             ctx.font = 'bold 12px Arial';
             ctx.fillText('DOUBLE', -20, -this.height - 25);
+        }
+
+        // Shield Visual
+        if (this.shield) {
+            ctx.save();
+            ctx.strokeStyle = 'rgba(0, 191, 255, 0.8)';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.arc(0, -this.height/2, this.width * 0.8, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.restore();
         }
 
         ctx.save();
@@ -482,9 +496,13 @@ class Cloud {
     }
 
     update() {
-        this.x += this.speed;
+        // 바람의 영향 추가 (wind 값에 따라 방향과 속도 변화)
+        this.x += this.speed + (wind * 50);
         if (this.x > width + 100) {
             this.x = -100;
+            this.y = Math.random() * (height * 0.4);
+        } else if (this.x < -100) {
+            this.x = width + 100;
             this.y = Math.random() * (height * 0.4);
         }
     }
@@ -683,20 +701,72 @@ function updateRankings(level) {
 // ---------------------------------
 function generateTerrain(canvasWidth, canvasHeight) {
     terrain = [];
-    let baseHeight = canvasHeight * 0.75;
-    let y = baseHeight;
+    let baseHeight = canvasHeight * 0.7;
+    
+    // 지형 타입 결정
+    const terrainTypes = ['FLAT', 'VALLEY', 'MOUNTAIN', 'CHAOTIC'];
+    let type = terrainTypes[Math.floor(Math.random() * terrainTypes.length)];
+    
+    if (gameMode === 'pve') {
+        type = terrainTypes[(npcLevel - 1) % terrainTypes.length];
+    }
 
-    for (let i = 0; i < canvasWidth; i++) {
-        y += (Math.random() - 0.5) * 2;
-        if (y < baseHeight - 20) y = baseHeight - 20;
-        if (y > baseHeight + 20) y = baseHeight + 20;
+    // 파라미터 설정
+    let amp1 = 0, freq1 = 0;
+    let amp2 = 0, freq2 = 0;
+    let offsetPhase = Math.random() * Math.PI * 2; // 시작 위상 랜덤
 
-        let height = y;
-        const dist = Math.abs(i - canvasWidth / 2);
-        if (dist < canvasWidth * 0.2) {
-            height -= Math.cos((dist / (canvasWidth * 0.2)) * (Math.PI / 2)) * (canvasHeight * 0.35);
+    switch (type) {
+        case 'FLAT': // 평탄한 지형
+            amp1 = canvasHeight * 0.05; freq1 = 0.005;
+            amp2 = canvasHeight * 0.02; freq2 = 0.02;
+            break;
+        case 'VALLEY': // 계곡형 (중앙이 낮음)
+            baseHeight = canvasHeight * 0.6;
+            amp1 = canvasHeight * 0.1; freq1 = 0.008;
+            amp2 = canvasHeight * 0.05; freq2 = 0.02;
+            break;
+        case 'MOUNTAIN': // 산악형 (중앙이 높음)
+            baseHeight = canvasHeight * 0.8;
+            amp1 = canvasHeight * 0.15; freq1 = 0.006;
+            amp2 = canvasHeight * 0.05; freq2 = 0.02;
+            break;
+        case 'CHAOTIC': // 불규칙
+            amp1 = canvasHeight * 0.15; freq1 = 0.01;
+            amp2 = canvasHeight * 0.1; freq2 = 0.03;
+            break;
+    }
+
+    for (let x = 0; x < canvasWidth; x++) {
+        let y = baseHeight;
+        
+        // 사인파 합성으로 기본 굴곡 생성
+        y += Math.sin(x * freq1 + offsetPhase) * amp1;
+        y += Math.sin(x * freq2 + offsetPhase * 2) * amp2;
+
+        // 지형 타입별 특수 처리
+        const dist = Math.abs(x - canvasWidth / 2);
+        if (type === 'VALLEY' && dist < canvasWidth * 0.4) {
+            y += Math.cos((dist / (canvasWidth * 0.4)) * (Math.PI / 2)) * (canvasHeight * 0.2);
+        } else if (type === 'MOUNTAIN' && dist < canvasWidth * 0.4) {
+            y -= Math.cos((dist / (canvasWidth * 0.4)) * (Math.PI / 2)) * (canvasHeight * 0.3);
         }
-        terrain.push(height);
+        
+        // 노이즈 추가
+        y += (Math.random() - 0.5) * 5;
+
+        // 화면 범위 제한
+        if (y < canvasHeight * 0.2) y = canvasHeight * 0.2;
+        if (y > canvasHeight - 50) y = canvasHeight - 50;
+
+        terrain.push(y);
+    }
+    
+    // 지형 부드럽게 처리 (Smoothing)
+    for (let k = 0; k < 2; k++) {
+        for (let i = 1; i < terrain.length - 1; i++) {
+            terrain[i] = (terrain[i-1] + terrain[i] + terrain[i+1]) / 3;
+        }
     }
 }
 
@@ -745,6 +815,7 @@ function startGame(canvasWidth, canvasHeight, mode = 'pvp') {
     clouds = [];
     items = [];
     currentPlayer = 1;
+    turnCount = 0;
     gameStatus.textContent = '';
     gameMode = mode;
     
@@ -996,6 +1067,13 @@ function applyItemEffect(tank, item) {
 }
 
 function handleHit(tank) {
+    if (tank.shield) {
+        tank.shield = false;
+        gameStatus.textContent = `Player ${tank.player}'s Shield blocked the attack!`;
+        createExplosion(tank.x, tank.y); // Visual effect for block
+        return; // No damage
+    }
+
     let damage = Math.floor(Math.random() * 20) + 25;
     
     if (projectile && projectile.isDoubleShot) {
@@ -1100,11 +1178,52 @@ function switchPlayer() {
     document.getElementById(`player${currentPlayer}Controls`).classList.remove('active');
     currentPlayer = currentPlayer === 1 ? 2 : 1;
     document.getElementById(`player${currentPlayer}Controls`).classList.add('active');
-    generateWind();
+    
+    turnCount++;
+    if (turnCount % 3 === 0) {
+        generateWind();
+    }
+    
+    // Cooldown Management
+    const currentTank = tanks[currentPlayer - 1];
+    if (currentTank.cooldowns.shield > 0) currentTank.cooldowns.shield--;
+    if (currentTank.cooldowns.double > 0) currentTank.cooldowns.double--;
+    
+    updateSkillUI();
     spawnItem();
 
     if (gameMode === 'pve' && currentPlayer === 2) {
         setTimeout(computerTurn, 1000);
+    }
+}
+
+function updateSkillUI() {
+    const p1ShieldBtn = document.getElementById('p1ShieldBtn');
+    const p1DoubleBtn = document.getElementById('p1DoubleBtn');
+    const p2ShieldBtn = document.getElementById('p2ShieldBtn');
+    const p2DoubleBtn = document.getElementById('p2DoubleBtn');
+
+    const updateBtn = (btn, cooldown, name) => {
+        if (!btn) return;
+        if (cooldown > 0) {
+            btn.disabled = true;
+            btn.textContent = `${name} (${cooldown})`;
+        } else {
+            btn.disabled = false;
+            btn.textContent = name;
+        }
+    };
+
+    if (currentPlayer === 1) {
+        updateBtn(p1ShieldBtn, tanks[0].cooldowns.shield, "🛡️ 보호막");
+        updateBtn(p1DoubleBtn, tanks[0].cooldowns.double, "💥 더블샷");
+        if (p2ShieldBtn) p2ShieldBtn.disabled = true;
+        if (p2DoubleBtn) p2DoubleBtn.disabled = true;
+    } else {
+        updateBtn(p2ShieldBtn, tanks[1].cooldowns.shield, "🛡️ 보호막");
+        updateBtn(p2DoubleBtn, tanks[1].cooldowns.double, "💥 더블샷");
+        if (p1ShieldBtn) p1ShieldBtn.disabled = true;
+        if (p1DoubleBtn) p1DoubleBtn.disabled = true;
     }
 }
 
@@ -1115,6 +1234,18 @@ function computerTurn() {
     
     // AI Movement
     const shouldMove = Math.random() < 0.6; // 60% chance to move
+
+    // AI Skill Usage
+    if (npc.cooldowns.shield === 0 && npc.health < 50 && Math.random() < 0.5) {
+        npc.shield = true;
+        npc.cooldowns.shield = 4;
+        gameStatus.textContent = "Computer used Shield!";
+    }
+    if (npc.cooldowns.double === 0 && Math.random() < 0.3) {
+        npc.doubleShot = true;
+        npc.cooldowns.double = 3;
+        gameStatus.textContent = "Computer used Double Shot!";
+    }
     
     if (shouldMove) {
         const direction = Math.random() < 0.5 ? -1 : 1;
@@ -1240,6 +1371,38 @@ function setupControls() {
         }
     });
 
+    // Skill Buttons
+    const setupSkillBtn = (id, player, type) => {
+        const btn = document.getElementById(id);
+        if (!btn) return;
+        btn.addEventListener('click', () => {
+            if (currentPlayer !== player || gameOver || projectile) return;
+            const tank = tanks[player - 1];
+            
+            if (type === 'shield') {
+                if (tank.cooldowns.shield === 0) {
+                    tank.shield = true;
+                    tank.cooldowns.shield = 3; // 3 turns cooldown
+                    updateSkillUI();
+                    gameStatus.textContent = `Player ${player} activated Shield!`;
+                }
+            } else if (type === 'double') {
+                if (tank.cooldowns.double === 0) {
+                    tank.doubleShot = true;
+                    tank.cooldowns.double = 3; // 3 turns cooldown
+                    updateSkillUI();
+                    gameStatus.textContent = `Player ${player} activated Double Shot!`;
+                }
+            }
+        });
+    };
+
+    setupSkillBtn('p1ShieldBtn', 1, 'shield');
+    setupSkillBtn('p1DoubleBtn', 1, 'double');
+    setupSkillBtn('p2ShieldBtn', 2, 'shield');
+    setupSkillBtn('p2DoubleBtn', 2, 'double');
+
+
     // Player 2 Controls
     const p2Angle = document.getElementById('angle2');
     const p2Power = document.getElementById('power2');
@@ -1265,9 +1428,11 @@ function setupControls() {
 
     const cameraToggleBtn = document.getElementById('cameraToggleBtn');
     if (cameraToggleBtn) {
-        cameraFollowsProjectile = !cameraFollowsProjectile;
-        cameraToggleBtn.textContent = cameraFollowsProjectile ? "카메라: 추적" : "카메라: 고정";
-        cameraToggleBtn.blur(); // 버튼 포커스 해제 (키보드 조작 방해 방지)
+        cameraToggleBtn.addEventListener('click', () => {
+            cameraFollowsProjectile = !cameraFollowsProjectile;
+            cameraToggleBtn.textContent = cameraFollowsProjectile ? "카메라: 추적" : "카메라: 고정";
+            cameraToggleBtn.blur(); // 버튼 포커스 해제 (키보드 조작 방해 방지)
+        });
     }
 
     const settingsBtn = document.getElementById('settingsBtn');
@@ -1302,6 +1467,21 @@ function setupControls() {
     addTouchBtn(btnLeft, 'left');
     addTouchBtn(btnRight, 'right');
     addTouchBtn(btnJump, 'jump');
+
+    window.addEventListener('keydown', (e) => {
+        if (e.key === '3') {
+            if (gameOver || projectile) return;
+            if (gameMode === 'pve' && currentPlayer === 2) return;
+
+            const tank = tanks[currentPlayer - 1];
+            if (tank.cooldowns.shield === 0) {
+                tank.shield = true;
+                tank.cooldowns.shield = 3;
+                updateSkillUI();
+                gameStatus.textContent = `Player ${currentPlayer} activated Shield!`;
+            }
+        }
+    });
 }
 
 function displayRankings() {
@@ -1327,8 +1507,8 @@ function resizeCanvas() {
     }
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(() => {
-        canvas.width = document.documentElement.clientWidth * 0.8;
-        canvas.height = document.documentElement.clientHeight * 0.8;
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
         
         if (gameStarted) {
             startGame(canvas.width, canvas.height, gameMode);
@@ -1345,18 +1525,21 @@ function init() {
     const pvpBtn = document.getElementById('pvpBtn');
     const pveBtn = document.getElementById('pveBtn');
     const startScreen = document.getElementById('startScreen');
+    const gameTitle = document.getElementById('gameTitle');
 
     displayRankings();
 
     const handleStart = (mode) => {
         soundManager.init();
         startScreen.style.display = 'none';
+        if (gameTitle) gameTitle.style.display = 'none';
         gameStarted = true;
         
         if (resizeTimer) clearTimeout(resizeTimer);
-        canvas.width = document.documentElement.clientWidth * 0.8;
-        canvas.height = document.documentElement.clientHeight * 0.8;
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
         startGame(canvas.width, canvas.height, mode);
+        updateSkillUI();
     };
 
     if (pvpBtn) {
@@ -1373,6 +1556,7 @@ function init() {
         restartBtn.addEventListener('click', () => {
             gameOverScreen.style.display = 'none';
             startScreen.style.display = 'flex'; // Go back to start screen
+            if (gameTitle) gameTitle.style.display = 'block';
             gameStarted = false;
             displayRankings();
             // Or restart same mode:
@@ -1386,6 +1570,7 @@ function init() {
         
         canvas.addEventListener('mousedown', (e) => {
             if (gameOver || projectile) return;
+            if (gameMode === 'pve' && currentPlayer === 2) return;
             isAiming = true;
             const screenPos = getMousePos(e);
             mousePos = {
@@ -1404,6 +1589,7 @@ function init() {
 
         canvas.addEventListener('touchstart', (e) => {
             if (gameOver || projectile) return;
+            if (gameMode === 'pve' && currentPlayer === 2) return;
             e.preventDefault();
             isAiming = true;
             const screenPos = getMousePos(e);
@@ -1423,6 +1609,7 @@ function init() {
 
         canvas.addEventListener('mouseup', (e) => {
             if (!isAiming) return;
+            if (gameMode === 'pve' && currentPlayer === 2) return;
             isAiming = false;
             
             const currentTank = tanks[currentPlayer - 1];
@@ -1438,6 +1625,7 @@ function init() {
 
         canvas.addEventListener('touchend', (e) => {
             if (!isAiming) return;
+            if (gameMode === 'pve' && currentPlayer === 2) return;
             e.preventDefault();
             isAiming = false;
             
@@ -1454,6 +1642,7 @@ function init() {
 
         canvas.addEventListener('mousemove', (e) => {
             if (isAiming) {
+                if (gameMode === 'pve' && currentPlayer === 2) return;
                 const screenPos = getMousePos(e);
                 mousePos = {
                     x: (screenPos.x - width / 2) / camera.scale + camera.x,
@@ -1472,6 +1661,7 @@ function init() {
 
         canvas.addEventListener('touchmove', (e) => {
             if (isAiming) {
+                if (gameMode === 'pve' && currentPlayer === 2) return;
                 e.preventDefault();
                 const screenPos = getMousePos(e);
                 mousePos = {

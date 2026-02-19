@@ -4,6 +4,10 @@ body {
     flex-direction: column;
     align-items: center;
     background-color: #f0f0f0;
+    margin: 0;
+    width: 100vw;
+    height: 100vh;
+    overflow: hidden;
 }
 
 h1 {
@@ -11,10 +15,10 @@ h1 {
 }
 
 #gameCanvas {
-    border: 2px solid #333;
     background-color: #add8e6; /* Light blue sky */
     width: 100%;
-    max-width: 800px;
+    height: 100%;
+    max-width: none;
     display: block;
     margin: 0 auto;
 }
@@ -61,6 +65,24 @@ button {
     padding: 5px 10px;
     font-size: 1em;
     cursor: pointer;
+}
+
+.skill-container {
+    display: flex;
+    gap: 10px;
+    margin-top: 5px;
+    margin-bottom: 5px;
+}
+
+.skill-btn {
+    flex: 1;
+    font-size: 0.8em;
+    background-color: #2196F3;
+}
+
+.skill-btn:disabled {
+    background-color: #ccc;
+    cursor: not-allowed;
 }
 
 #gameStatus {

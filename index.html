@@ -18,7 +18,7 @@
     </style>
 </head>
 <body>
-    <h1>탱크 전쟁</h1>
+    <h1 id="gameTitle">탱크 전쟁</h1>
     <div id="startScreen">
         <h1>탱크 전쟁</h1>
         <div style="display: flex; gap: 20px;">
@@ -52,6 +52,10 @@
             <input type="range" id="power1" name="power1" min="1" max="100" value="50">
             <span id="powerValue1">50</span>
             <br>
+            <div class="skill-container">
+                <button id="p1ShieldBtn" class="skill-btn">🛡️ 보호막</button>
+                <button id="p1DoubleBtn" class="skill-btn">💥 더블샷</button>
+            </div>
             <button id="fireButton1">발사!</button>
         </div>
 
@@ -65,6 +69,10 @@
             <input type="range" id="power2" name="power2" min="1" max="100" value="50">
             <span id="powerValue2">50</span>
             <br>
+            <div class="skill-container">
+                <button id="p2ShieldBtn" class="skill-btn">🛡️ 보호막</button>
+                <button id="p2DoubleBtn" class="skill-btn">💥 더블샷</button>
+            </div>
             <button id="fireButton2">발사!</button>
         </div>
     </div>
