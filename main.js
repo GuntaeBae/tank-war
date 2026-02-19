@@ -41,11 +41,13 @@ const resourceLoader = {
 // 사운드 매니저 (Web Audio API)
 const soundManager = {
     ctx: null,
+    soundEnabled: true,
     init() {
         const AudioContext = window.AudioContext || window.webkitAudioContext;
         this.ctx = new AudioContext();
     },
     playShoot() {
+        if (!this.soundEnabled) return;
         if (!this.ctx) return;
         if (this.ctx.state === 'suspended') this.ctx.resume();
         
@@ -66,6 +68,7 @@ const soundManager = {
         osc.stop(this.ctx.currentTime + 0.2);
     },
     playExplosion() {
+        if (!this.soundEnabled) return;
         if (!this.ctx) return;
         if (this.ctx.state === 'suspended') this.ctx.resume();
         
@@ -100,7 +103,6 @@ const soundManager = {
 // ---------------------------------
 // 게임 상태 및 상수
 // ---------------------------------
-const gravity = 0.1;
 let wind = 0;
 let turnCount = 0;
 let currentPlayer = 1;
@@ -130,440 +132,6 @@ const levelThemes = [
     { bg: '#E0FFFF', terrain: '#B0E0E6', name: "Frozen Tundra" }, // Level 4: Ice / Snow
     { bg: '#2F4F4F', terrain: '#556B2F', name: "Toxic Swamp" }  // Level 5: Swamp / Slime
 ];
-
-
-// ---------------------------------
-// 게임 객체 (클래스)
-// ---------------------------------
-class Tank {
-    constructor(x, player, terrain) {
-        this.player = player;
-        this.baseImg = resourceLoader.images['side_tank.png'];
-        this.width = 60; 
-        this.height = 25; 
-        this.x = x;
-        this.y = terrain[Math.floor(x)] - this.height / 2;
-        this.turretLength = 40;
-        this.turretHeight = 6;
-        this.health = 100;
-        this.doubleShot = false;
-        this.maxFuel = 300;
-        this.fuel = this.maxFuel;
-        this.wheelRadius = 5;
-        this.wheelOffsets = [-20, -7, 6, 19];
-        this.vy = 0;
-        this.onGround = true;
-        this.shield = false;
-        this.cooldowns = { shield: 0, double: 0 };
-        
-        // NPC Stats
-        this.accuracy = 0; // Error range in degrees
-        this.powerMult = 1;
-
-        // Tint Cache for Player 2
-        if (this.player === 2) {
-            this.cacheCanvas = document.createElement('canvas');
-            this.cacheCanvas.width = this.width;
-            this.cacheCanvas.height = this.height;
-            this.cacheCtx = this.cacheCanvas.getContext('2d');
-            this.lastTintLevel = -1;
-            this.lastGameMode = '';
-        }
-    }
-
-    updateTintCache(level) {
-        this.cacheCtx.clearRect(0, 0, this.width, this.height);
-        this.cacheCtx.drawImage(this.baseImg, 0, 0, this.width, this.height);
-        
-        this.cacheCtx.globalCompositeOperation = 'source-atop';
-        if (gameMode === 'pve') {
-            const colors = ['rgba(255, 50, 50, 0.5)', 'rgba(255, 165, 0, 0.5)', 'rgba(147, 112, 219, 0.5)', 'rgba(0, 191, 255, 0.5)', 'rgba(50, 205, 50, 0.5)'];
-            this.cacheCtx.fillStyle = colors[(level - 1) % colors.length];
-        } else {
-            this.cacheCtx.fillStyle = 'rgba(255, 100, 100, 0.5)';
-        }
-        this.cacheCtx.fillRect(0, 0, this.width, this.height);
-        this.cacheCtx.globalCompositeOperation = 'source-over';
-    }
-
-    update() {
-        this.vy += gravity;
-        this.y += this.vy;
-
-        const groundY = terrain[Math.floor(this.x)] - this.height / 2;
-        if (this.y >= groundY) {
-            this.y = groundY;
-            this.vy = 0;
-            this.onGround = true;
-        } else {
-            this.onGround = false;
-        }
-
-        if (this.onGround) {
-            const ix = Math.floor(this.x);
-            if (ix >= 5 && ix < width - 5) {
-                const leftY = terrain[ix - 5];
-                const rightY = terrain[ix + 5];
-                const slope = rightY - leftY;
-
-                if (Math.abs(slope) > 3) {
-                    this.x += slope * 0.1;
-                }
-
-                if (this.x < 20) this.x = 20;
-                if (this.x > width - 20) this.x = width - 20;
-            }
-        }
-    }
-
-    draw() {
-        ctx.save();
-        ctx.translate(this.x, this.y);
-
-        // Health bar
-        const healthBarWidth = 40;
-        const healthBarHeight = 5;
-        ctx.fillStyle = 'red';
-        ctx.fillRect(-healthBarWidth / 2, -this.height - 15, healthBarWidth, healthBarHeight);
-        ctx.fillStyle = 'green';
-        ctx.fillRect(-healthBarWidth / 2, -this.height - 15, healthBarWidth * (this.health / 100), healthBarHeight);
-
-        // Fuel bar
-        ctx.fillStyle = '#555';
-        ctx.fillRect(-healthBarWidth / 2, -this.height - 8, healthBarWidth, healthBarHeight);
-        ctx.fillStyle = '#1E90FF'; // DodgerBlue
-        ctx.fillRect(-healthBarWidth / 2, -this.height - 8, healthBarWidth * (this.fuel / this.maxFuel), healthBarHeight);
-
-        if (this.doubleShot) {
-            ctx.fillStyle = '#FF4500';
-            ctx.font = 'bold 12px Arial';
-            ctx.fillText('DOUBLE', -20, -this.height - 25);
-        }
-
-        // Shield Visual
-        if (this.shield) {
-            ctx.save();
-            ctx.strokeStyle = 'rgba(0, 191, 255, 0.8)';
-            ctx.lineWidth = 3;
-            ctx.beginPath();
-            ctx.arc(0, -this.height/2, this.width * 0.8, 0, Math.PI * 2);
-            ctx.stroke();
-            ctx.restore();
-        }
-
-        ctx.save();
-        if (this.player === 1) {
-            ctx.scale(-1, 1);
-            // Tank base
-            ctx.drawImage(this.baseImg, -this.width / 2, -this.height/2, this.width, this.height);
-        } else {
-            // Player 2 (NPC or P2)
-            const currentLevel = gameMode === 'pve' ? npcLevel : 0;
-            if (this.lastTintLevel !== currentLevel || this.lastGameMode !== gameMode) {
-                this.updateTintCache(currentLevel);
-                this.lastTintLevel = currentLevel;
-                this.lastGameMode = gameMode;
-            }
-            ctx.drawImage(this.cacheCanvas, -this.width / 2, -this.height/2, this.width, this.height);
-        }
-
-
-        // Draw Wheels
-        this.drawWheels();
-
-        // Turret
-        let angle;
-        if (isAiming && this.player === currentPlayer) {
-            const dx = mousePos.x - this.x;
-            const dy = mousePos.y - this.y;
-            angle = Math.atan2(dy, dx);
-        } else {
-            angle = lastFireInfo[this.player].angle;
-        }
-        
-        if (this.player === 1) {
-            angle = Math.PI - angle;
-        }
-        
-        ctx.save();
-        ctx.rotate(angle);
-        ctx.fillStyle = '#666';
-        ctx.fillRect(0, -this.turretHeight / 2, this.turretLength, this.turretHeight);
-        ctx.restore();
-        
-        ctx.restore();
-
-        ctx.restore();
-    }
-
-    drawWheels() {
-        const wheelY = this.height / 2; 
-        
-        ctx.fillStyle = '#333';
-        ctx.strokeStyle = '#000';
-        ctx.lineWidth = 1;
-
-        // Rotation based on x position
-        let rotation = this.x / this.wheelRadius;
-        
-        // If player 1 (flipped), reverse rotation to match visual direction
-        if (this.player === 1) {
-            rotation = -rotation;
-        }
-
-        this.wheelOffsets.forEach(wx => {
-            ctx.save();
-            ctx.translate(wx, wheelY);
-            ctx.rotate(rotation);
-            
-            ctx.beginPath();
-            ctx.arc(0, 0, this.wheelRadius, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.stroke();
-
-            // Spokes
-            ctx.strokeStyle = '#888';
-            ctx.beginPath();
-            ctx.moveTo(-this.wheelRadius, 0);
-            ctx.lineTo(this.wheelRadius, 0);
-            ctx.moveTo(0, -this.wheelRadius);
-            ctx.lineTo(0, this.wheelRadius);
-            ctx.stroke();
-
-            ctx.restore();
-        });
-    }
-
-    applyRecoil(angle, power) {
-        const recoilForce = power * 0.1;
-        this.x -= Math.cos(angle) * recoilForce;
-
-        if (this.x < 0) this.x = 0;
-        if (this.x >= width) this.x = width - 1;
-    }
-
-    move(direction) {
-        if (this.fuel > 0) {
-            this.x += direction * 2;
-            this.fuel -= 2;
-            if (this.x < 20) this.x = 20;
-            if (this.x > width - 20) this.x = width - 20;
-
-            if (Math.random() < 0.3) {
-                createDust(this.x, terrain[Math.floor(this.x)]);
-            }
-        }
-    }
-
-    jump() {
-        if (this.onGround) {
-            this.vy = -4;
-            this.onGround = false;
-            this.y -= 1;
-        }
-    }
-}
-
-class Projectile {
-    constructor(x, y, angle, power, player, isDoubleShot = false) {
-        this.x = x;
-        this.y = y;
-        this.radius = 5;
-        this.player = player;
-        const speed = power / 5; 
-        this.vx = speed * Math.cos(angle);
-        this.vy = speed * Math.sin(angle);
-        this.isDoubleShot = isDoubleShot;
-        if (this.isDoubleShot) {
-            this.radius = 8;
-        }
-    }
-
-    update() {
-        this.vy += gravity;
-        this.vx += wind;
-        this.x += this.vx;
-        this.y += this.vy;
-    }
-
-    draw() {
-        ctx.fillStyle = this.isDoubleShot ? '#FF4500' : 'black';
-        ctx.beginPath();
-        ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
-        ctx.fill();
-    }
-}
-
-class Particle {
-    constructor(x, y) {
-        this.x = x;
-        this.y = y;
-        this.radius = Math.random() * 3 + 1;
-        const angle = Math.random() * Math.PI * 2;
-        const speed = Math.random() * 5 + 2;
-        this.vx = Math.cos(angle) * speed;
-        this.vy = Math.sin(angle) * speed;
-        this.life = 1.0;
-        this.decay = Math.random() * 0.02 + 0.01;
-        const colors = ['#FF4500', '#FFA500', '#FFD700', '#808080']; // Red, Orange, Gold, Gray
-        this.color = colors[Math.floor(Math.random() * colors.length)];
-    }
-
-    update() {
-        this.x += this.vx;
-        this.y += this.vy;
-        this.vy += 0.1; // Gravity
-        this.life -= this.decay;
-    }
-
-    draw() {
-        ctx.save();
-        ctx.globalAlpha = this.life;
-        ctx.fillStyle = this.color;
-        ctx.beginPath();
-        ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.restore();
-    }
-}
-
-class Dust {
-    constructor(x, y) {
-        this.x = x;
-        this.y = y;
-        this.radius = Math.random() * 2 + 1;
-        this.vx = (Math.random() - 0.5) * 1.5;
-        this.vy = -Math.random() * 1 - 0.5;
-        this.life = 1.0;
-        this.decay = Math.random() * 0.05 + 0.03;
-        this.color = `rgba(120, 100, 80, ${Math.random() * 0.5 + 0.3})`;
-    }
-
-    update() {
-        this.x += this.vx;
-        this.y += this.vy;
-        this.life -= this.decay;
-    }
-
-    draw() {
-        ctx.save();
-        ctx.globalAlpha = this.life;
-        ctx.fillStyle = this.color;
-        ctx.beginPath();
-        ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.restore();
-    }
-}
-
-class Smoke {
-    constructor(x, y) {
-        this.x = x;
-        this.y = y;
-        this.radius = Math.random() * 3 + 2;
-        this.vx = (Math.random() - 0.5) * 1.5;
-        this.vy = -Math.random() * 2 - 0.5;
-        this.life = 1.0;
-        this.decay = Math.random() * 0.02 + 0.01;
-        const gray = Math.floor(Math.random() * 100 + 50);
-        this.color = `rgb(${gray}, ${gray}, ${gray})`;
-    }
-
-    update() {
-        this.x += this.vx;
-        this.y += this.vy;
-        this.life -= this.decay;
-        this.radius += 0.1;
-    }
-
-    draw() {
-        ctx.save();
-        ctx.globalAlpha = this.life * 0.6;
-        ctx.fillStyle = this.color;
-        ctx.beginPath();
-        ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.restore();
-    }
-}
-
-class Cloud {
-    constructor() {
-        this.x = Math.random() * width;
-        this.y = Math.random() * (height * 0.4);
-        this.speed = Math.random() * 0.5 + 0.2;
-        this.scale = Math.random() * 0.5 + 0.5;
-    }
-
-    update() {
-        // 바람의 영향 추가 (wind 값에 따라 방향과 속도 변화)
-        this.x += this.speed + (wind * 50);
-        if (this.x > width + 100) {
-            this.x = -100;
-            this.y = Math.random() * (height * 0.4);
-        } else if (this.x < -100) {
-            this.x = width + 100;
-            this.y = Math.random() * (height * 0.4);
-        }
-    }
-
-    draw() {
-        ctx.save();
-        ctx.translate(this.x, this.y);
-        ctx.scale(this.scale, this.scale);
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
-        ctx.beginPath();
-        ctx.arc(0, 0, 30, 0, Math.PI * 2);
-        ctx.arc(40, -10, 40, 0, Math.PI * 2);
-        ctx.arc(80, 0, 30, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.restore();
-    }
-}
-
-class Item {
-    constructor(x, type) {
-        this.x = x;
-        this.y = -30;
-        this.type = type; // 'HEALTH' or 'POWER'
-        this.width = 30;
-        this.height = 30;
-        this.vy = 3;
-        this.onGround = false;
-    }
-
-    update() {
-        if (!this.onGround) {
-            this.y += this.vy;
-        }
-    }
-
-    draw() {
-        ctx.save();
-        ctx.translate(this.x, this.y);
-        
-        if (this.type === 'HEALTH') ctx.fillStyle = '#32CD32';
-        else if (this.type === 'POWER') ctx.fillStyle = '#FF4500';
-        else ctx.fillStyle = '#1E90FF'; // FUEL
-
-        ctx.strokeStyle = 'white';
-        ctx.lineWidth = 2;
-        ctx.fillRect(-15, -15, 30, 30);
-        ctx.strokeRect(-15, -15, 30, 30);
-        
-        ctx.fillStyle = 'white';
-        ctx.font = 'bold 20px Arial';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        
-        let text = 'F';
-        if (this.type === 'HEALTH') text = '+';
-        else if (this.type === 'POWER') text = 'P';
-        ctx.fillText(text, 0, 2);
-        
-        ctx.restore();
-    }
-}
 
 // 게임 객체
 let terrain = [];
@@ -616,7 +184,7 @@ function generateWind() {
 function drawWindIndicator() {
     ctx.save();
     const cx = width / 2;
-    const cy = 50;
+    const cy = 30;
     const barWidth = 200;
     
     // Background bar
@@ -668,7 +236,7 @@ function drawNPCStats() {
 
     ctx.save();
     const cx = width / 2;
-    const cy = 80; // Below wind indicator
+    const cy = 70; // Below wind indicator
 
     ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
     ctx.beginPath();
@@ -694,111 +262,6 @@ function updateRankings(level) {
     rankings = rankings.slice(0, 5); // Keep top 5
     localStorage.setItem('fortress_rankings', JSON.stringify(rankings));
     displayRankings();
-}
-
-// ---------------------------------
-// 지형 관련 함수
-// ---------------------------------
-function generateTerrain(canvasWidth, canvasHeight) {
-    terrain = [];
-    let baseHeight = canvasHeight * 0.7;
-    
-    // 지형 타입 결정
-    const terrainTypes = ['FLAT', 'VALLEY', 'MOUNTAIN', 'CHAOTIC'];
-    let type = terrainTypes[Math.floor(Math.random() * terrainTypes.length)];
-    
-    if (gameMode === 'pve') {
-        type = terrainTypes[(npcLevel - 1) % terrainTypes.length];
-    }
-
-    // 파라미터 설정
-    let amp1 = 0, freq1 = 0;
-    let amp2 = 0, freq2 = 0;
-    let offsetPhase = Math.random() * Math.PI * 2; // 시작 위상 랜덤
-
-    switch (type) {
-        case 'FLAT': // 평탄한 지형
-            amp1 = canvasHeight * 0.05; freq1 = 0.005;
-            amp2 = canvasHeight * 0.02; freq2 = 0.02;
-            break;
-        case 'VALLEY': // 계곡형 (중앙이 낮음)
-            baseHeight = canvasHeight * 0.6;
-            amp1 = canvasHeight * 0.1; freq1 = 0.008;
-            amp2 = canvasHeight * 0.05; freq2 = 0.02;
-            break;
-        case 'MOUNTAIN': // 산악형 (중앙이 높음)
-            baseHeight = canvasHeight * 0.8;
-            amp1 = canvasHeight * 0.15; freq1 = 0.006;
-            amp2 = canvasHeight * 0.05; freq2 = 0.02;
-            break;
-        case 'CHAOTIC': // 불규칙
-            amp1 = canvasHeight * 0.15; freq1 = 0.01;
-            amp2 = canvasHeight * 0.1; freq2 = 0.03;
-            break;
-    }
-
-    for (let x = 0; x < canvasWidth; x++) {
-        let y = baseHeight;
-        
-        // 사인파 합성으로 기본 굴곡 생성
-        y += Math.sin(x * freq1 + offsetPhase) * amp1;
-        y += Math.sin(x * freq2 + offsetPhase * 2) * amp2;
-
-        // 지형 타입별 특수 처리
-        const dist = Math.abs(x - canvasWidth / 2);
-        if (type === 'VALLEY' && dist < canvasWidth * 0.4) {
-            y += Math.cos((dist / (canvasWidth * 0.4)) * (Math.PI / 2)) * (canvasHeight * 0.2);
-        } else if (type === 'MOUNTAIN' && dist < canvasWidth * 0.4) {
-            y -= Math.cos((dist / (canvasWidth * 0.4)) * (Math.PI / 2)) * (canvasHeight * 0.3);
-        }
-        
-        // 노이즈 추가
-        y += (Math.random() - 0.5) * 5;
-
-        // 화면 범위 제한
-        if (y < canvasHeight * 0.2) y = canvasHeight * 0.2;
-        if (y > canvasHeight - 50) y = canvasHeight - 50;
-
-        terrain.push(y);
-    }
-    
-    // 지형 부드럽게 처리 (Smoothing)
-    for (let k = 0; k < 2; k++) {
-        for (let i = 1; i < terrain.length - 1; i++) {
-            terrain[i] = (terrain[i-1] + terrain[i] + terrain[i+1]) / 3;
-        }
-    }
-}
-
-function destroyTerrain(x, y) {
-    const radius = 30;
-    const startX = Math.floor(x - radius);
-    const endX = Math.ceil(x + radius);
-
-    for (let i = startX; i <= endX; i++) {
-        if (i >= 0 && i < width) {
-            const dx = i - x;
-            if (dx * dx <= radius * radius) {
-                const dy = Math.sqrt(radius * radius - dx * dx);
-                const newY = y + dy;
-                if (newY > terrain[i]) {
-                    terrain[i] = newY;
-                }
-            }
-        }
-    }
-}
-
-function drawTerrain(canvasWidth, canvasHeight) {
-    ctx.fillStyle = currentTheme.terrain;
-    ctx.beginPath();
-    ctx.moveTo(0, canvasHeight);
-    for (let i = 0; i < canvasWidth; i++) {
-        ctx.lineTo(i, terrain[i]);
-    }
-    ctx.lineTo(canvasWidth, canvasHeight);
-    ctx.closePath();
-    ctx.fill();
 }
 
 // ---------------------------------
@@ -1019,37 +482,6 @@ function gameLoop() {
     animationFrameId = requestAnimationFrame(gameLoop);
 }
 
-function checkCollisions() {
-    const projX = Math.round(projectile.x);
-    const projY = Math.round(projectile.y);
-
-    if (projX < 0 || projX >= width || projY > height) {
-        projectile = null;
-        switchPlayer();
-        return;
-    }
-
-    if (projX >= 0 && projX < width && projY >= terrain[projX]) {
-        destroyTerrain(projX, projY);
-        createExplosion(projX, projY);
-        projectile = null;
-        switchPlayer();
-        return;
-    }
-
-    for (const tank of tanks) {
-        if (projectile && tank.player !== projectile.player) {
-            const dist = Math.sqrt(Math.pow(projX - tank.x, 2) + Math.pow(projY - tank.y, 2));
-            if (dist < tank.width / 2) {
-                createExplosion(projX, projY);
-                handleHit(tank);
-                projectile = null;
-                if (!gameOver) switchPlayer();
-                return;
-            }
-        }
-    }
-}
 // ---------------------------------
 // 헬퍼 함수
 // ---------------------------------
@@ -1117,67 +549,25 @@ function handleHit(tank) {
     }
 }
 
-function drawTrajectory(tank, angle, power) {
-    const startX = tank.x + tank.turretLength * Math.cos(angle);
-    const startY = tank.y + tank.turretLength * Math.sin(angle);
-    
-    const speed = power / 5;
-    let vx = speed * Math.cos(angle);
-    let vy = speed * Math.sin(angle);
-    
-    let x = startX;
-    let y = startY;
-    
-    ctx.save();
-    ctx.beginPath();
-    ctx.moveTo(x, y);
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)';
-    ctx.lineWidth = 2;
-    ctx.setLineDash([5, 5]);
-
-    for (let i = 0; i < 200; i++) {
-        vy += gravity;
-        // Wind is intentionally ignored for difficulty
-        x += vx;
-        y += vy;
-        
-        ctx.lineTo(x, y);
-        
-        if (x < 0 || x >= width || y > height) break;
-        if (x >= 0 && x < width && y >= terrain[Math.floor(x)]) break;
-    }
-    
-    ctx.stroke();
-    ctx.restore();
-}
-
 function updateUI(player, angle, power) {
     let degrees = (-angle * 180 / Math.PI + 360) % 360;
     const uiPower = (power / 150) * 100;
 
-    const angleInput = document.getElementById(`angle${player}`);
-    const angleValue = document.getElementById(`angleValue${player}`);
-    const powerInput = document.getElementById(`power${player}`);
-    const powerValue = document.getElementById(`powerValue${player}`);
-
-    if (angleInput && angleValue) {
-        const deg = Math.round(degrees);
-        angleInput.value = deg;
-        angleValue.textContent = deg;
-    }
-    if (powerInput && powerValue) {
-        const pwr = Math.round(uiPower);
-        powerInput.value = pwr;
-        powerValue.textContent = pwr;
+    const shotInfo = document.getElementById('shotInfo');
+    if (shotInfo) {
+        shotInfo.textContent = `Angle: ${Math.round(degrees)}° | Power: ${Math.round(uiPower)}`;
     }
 }
 
 function switchPlayer() {
     if (gameOver) return;
     
-    document.getElementById(`player${currentPlayer}Controls`).classList.remove('active');
     currentPlayer = currentPlayer === 1 ? 2 : 1;
-    document.getElementById(`player${currentPlayer}Controls`).classList.add('active');
+    
+    // 턴 정보 업데이트
+    const turnInfo = document.getElementById('turnInfo');
+    if (turnInfo) turnInfo.textContent = gameMode === 'pve' && currentPlayer === 2 ? "Computer Turn" : `Player ${currentPlayer} Turn`;
+    if (turnInfo) turnInfo.style.color = currentPlayer === 1 ? '#4CAF50' : '#FF5722';
     
     turnCount++;
     if (turnCount % 3 === 0) {
@@ -1198,33 +588,28 @@ function switchPlayer() {
 }
 
 function updateSkillUI() {
-    const p1ShieldBtn = document.getElementById('p1ShieldBtn');
-    const p1DoubleBtn = document.getElementById('p1DoubleBtn');
-    const p2ShieldBtn = document.getElementById('p2ShieldBtn');
-    const p2DoubleBtn = document.getElementById('p2DoubleBtn');
+    const btnShield = document.getElementById('btnShield');
+    const btnDouble = document.getElementById('btnDouble');
+    
+    if (!btnShield || !btnDouble) return;
+
+    const currentTank = tanks[currentPlayer - 1];
+    
+    // 컴퓨터 턴이거나 게임 오버시 버튼 비활성화
+    const isDisabled = (gameMode === 'pve' && currentPlayer === 2) || gameOver;
 
     const updateBtn = (btn, cooldown, name) => {
-        if (!btn) return;
-        if (cooldown > 0) {
+        if (isDisabled || cooldown > 0) {
             btn.disabled = true;
-            btn.textContent = `${name} (${cooldown})`;
+            btn.style.opacity = '0.5';
         } else {
             btn.disabled = false;
-            btn.textContent = name;
+            btn.style.opacity = '1';
         }
     };
 
-    if (currentPlayer === 1) {
-        updateBtn(p1ShieldBtn, tanks[0].cooldowns.shield, "🛡️ 보호막");
-        updateBtn(p1DoubleBtn, tanks[0].cooldowns.double, "💥 더블샷");
-        if (p2ShieldBtn) p2ShieldBtn.disabled = true;
-        if (p2DoubleBtn) p2DoubleBtn.disabled = true;
-    } else {
-        updateBtn(p2ShieldBtn, tanks[1].cooldowns.shield, "🛡️ 보호막");
-        updateBtn(p2DoubleBtn, tanks[1].cooldowns.double, "💥 더블샷");
-        if (p1ShieldBtn) p1ShieldBtn.disabled = true;
-        if (p1DoubleBtn) p1DoubleBtn.disabled = true;
-    }
+    updateBtn(btnShield, currentTank.cooldowns.shield, "🛡️");
+    updateBtn(btnDouble, currentTank.cooldowns.double, "💥");
 }
 
 function computerTurn() {
@@ -1303,26 +688,6 @@ function computerFire() {
     const finalPower = Math.min(100, Math.max(10, bestShot.power + (Math.random() - 0.5) * npc.accuracy));
 
     fire(2, finalAngle, finalPower);
-}
-
-function simulateShot(source, target, angle, power) {
-    let x = source.x;
-    let y = source.y;
-    let vx = (power / 5) * Math.cos(angle);
-    let vy = (power / 5) * Math.sin(angle);
-    let minDist = Infinity;
-
-    // Simulate trajectory
-    for (let i = 0; i < 200; i++) {
-        vy += gravity;
-        vx += wind;
-        x += vx;
-        y += vy;
-        const d = Math.sqrt((x - target.x)**2 + (y - target.y)**2);
-        if (d < minDist) minDist = d;
-        if (y > height || x < 0 || x > width) break;
-    }
-    return minDist;
 }
 
 function getMousePos(e) {
@@ -1432,6 +797,15 @@ function setupControls() {
             cameraFollowsProjectile = !cameraFollowsProjectile;
             cameraToggleBtn.textContent = cameraFollowsProjectile ? "카메라: 추적" : "카메라: 고정";
             cameraToggleBtn.blur(); // 버튼 포커스 해제 (키보드 조작 방해 방지)
+        });
+    }
+
+    const soundToggleBtn = document.getElementById('soundToggleBtn');
+    if (soundToggleBtn) {
+        soundToggleBtn.addEventListener('click', () => {
+            soundManager.soundEnabled = !soundManager.soundEnabled;
+            soundToggleBtn.textContent = soundManager.soundEnabled ? "소리: 켜짐" : "소리: 꺼짐";
+            soundToggleBtn.blur();
         });
     }
 

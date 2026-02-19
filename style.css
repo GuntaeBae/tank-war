@@ -23,66 +23,45 @@ h1 {
     margin: 0 auto;
 }
 
-.controls {
+.player-controls {
+    /* 기존 컨트롤 패널 스타일 제거를 위해 숨김 처리 혹은 삭제 */
+    display: none !important;
+}
+
+/* 새로운 HUD 스타일 */
+#gameHUD {
     position: absolute;
-    bottom: 30px;
+    top: 100px;
     left: 50%;
     transform: translateX(-50%);
     display: flex;
-    justify-content: space-around;
-    width: 80%;
-    max-width: 800px;
-    padding: 10px;
-    background-color: rgba(221, 221, 221, 0.9);
-    border-radius: 10px;
-    z-index: 10;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    pointer-events: none;
+    z-index: 50;
 }
 
-.player-controls {
-    display: none;
-    border: 1px solid #999;
-    padding: 10px;
-    border-radius: 5px;
-    background-color: #eee;
-    opacity: 0.5;
+#turnInfo {
+    font-size: 24px;
+    font-weight: bold;
+    color: white;
+    text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+    background-color: rgba(0, 0, 0, 0.3);
+    padding: 5px 15px;
+    border-radius: 20px;
 }
 
-.player-controls.active {
-    opacity: 1.0;
-    box-shadow: 0 0 10px yellow;
-}
-
-label {
-    margin-right: 10px;
-}
-
-input[type="range"] {
-    width: 150px;
+#shotInfo {
+    font-size: 16px;
+    color: #eee;
+    text-shadow: 1px 1px 2px rgba(0,0,0,0.8);
 }
 
 button {
-    margin-top: 10px;
-    padding: 5px 10px;
-    font-size: 1em;
     cursor: pointer;
-}
-
-.skill-container {
-    display: flex;
-    gap: 10px;
-    margin-top: 5px;
-    margin-bottom: 5px;
-}
-
-.skill-btn {
-    flex: 1;
-    font-size: 0.8em;
-    background-color: #2196F3;
-}
-
-.skill-btn:disabled {
-    background-color: #ccc;
-    cursor: not-allowed;
+    font-family: inherit;
+    border: none;
 }
 
 #gameStatus {
@@ -114,19 +93,28 @@ button {
 }
 
 #startScreen button {
-    padding: 15px 40px;
-    font-size: 1.5rem;
-    background-color: #4CAF50;
+    padding: 15px 50px;
+    font-size: 1.2rem;
+    font-weight: bold;
     color: white;
+    background: linear-gradient(45deg, #11998e, #38ef7d);
     border: none;
-    border-radius: 8px;
+    border-radius: 50px;
     cursor: pointer;
-    transition: transform 0.1s, background-color 0.2s;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+    transition: all 0.3s ease;
+    text-transform: uppercase;
+    letter-spacing: 1px;
 }
 
 #startScreen button:hover {
-    background-color: #45a049;
-    transform: scale(1.05);
+    transform: translateY(-3px);
+    box-shadow: 0 8px 25px rgba(56, 239, 125, 0.4);
+}
+
+#startScreen button:active {
+    transform: translateY(1px);
+    box-shadow: 0 2px 10px rgba(56, 239, 125, 0.3);
 }
 
 #gameOverScreen {
@@ -151,19 +139,28 @@ button {
 }
 
 #gameOverScreen button {
-    padding: 15px 40px;
-    font-size: 1.5rem;
-    background-color: #4CAF50;
+    padding: 15px 50px;
+    font-size: 1.2rem;
+    font-weight: bold;
     color: white;
+    background: linear-gradient(45deg, #ff512f, #dd2476);
     border: none;
-    border-radius: 8px;
+    border-radius: 50px;
     cursor: pointer;
-    transition: transform 0.1s, background-color 0.2s;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+    transition: all 0.3s ease;
+    text-transform: uppercase;
+    letter-spacing: 1px;
 }
 
 #gameOverScreen button:hover {
-    background-color: #45a049;
-    transform: scale(1.05);
+    transform: translateY(-3px);
+    box-shadow: 0 8px 25px rgba(221, 36, 118, 0.4);
+}
+
+#gameOverScreen button:active {
+    transform: translateY(1px);
+    box-shadow: 0 2px 10px rgba(221, 36, 118, 0.3);
 }
 
 #mobileControls {
@@ -185,20 +182,51 @@ button {
 
 #mobileControls button {
     pointer-events: auto;
-    width: 60px;
-    height: 60px;
+    width: 50px;
+    height: 50px;
     border-radius: 50%;
-    background: rgba(255, 255, 255, 0.6);
-    border: 2px solid #333;
-    font-size: 18px;
+    background: rgba(255, 255, 255, 0.3);
+    border: 2px solid rgba(51, 51, 51, 0.3);
+    color: rgba(0, 0, 0, 0.5);
+    font-size: 14px;
     font-weight: bold;
     touch-action: manipulation;
     user-select: none;
 }
 
 #mobileControls button:active {
-    background: rgba(255, 255, 255, 0.9);
+    background: rgba(255, 255, 255, 0.5);
     transform: scale(0.95);
+}
+
+#skillControls {
+    position: fixed;
+    bottom: 90px; /* 모바일 컨트롤 위쪽 */
+    right: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+    z-index: 20;
+}
+
+.hud-btn {
+    width: 50px;
+    height: 50px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #2196F3, #21CBF3);
+    color: white;
+    font-size: 20px;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+    transition: transform 0.1s, filter 0.2s;
+}
+
+.hud-btn:active {
+    transform: scale(0.95);
+}
+
+.hud-btn:disabled {
+    filter: grayscale(100%);
+    opacity: 0.6;
 }
 
 #settingsBtn {
@@ -233,4 +261,19 @@ button {
     border-radius: 15px;
     text-align: center;
     min-width: 300px;
+}
+
+.settings-content button {
+    display: block;
+    width: 80%;
+    margin: 10px auto;
+    padding: 12px;
+    font-size: 1.1rem;
+    background-color: #eee;
+    border-radius: 8px;
+    transition: background 0.2s;
+}
+
+.settings-content button:hover {
+    background-color: #ddd;
 }
