@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>탱크 전쟁</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        #gameCanvas {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 0;
+            width: auto;
+            max-width: none;
+        }
+    </style>
+</head>
+<body>
+    <h1>탱크 전쟁</h1>
+    <div id="startScreen">
+        <h1>탱크 전쟁</h1>
+        <div style="display: flex; gap: 20px;">
+            <button id="pvpBtn">플레이어 대결</button>
+            <button id="pveBtn">컴퓨터 모드</button>
+        </div>
+        <div id="rankingBoard" style="margin-top: 30px; color: white; text-align: center;">
+        </div>
+    </div>
+    <div id="gameOverScreen" style="display: none;">
+        <h1 id="winnerText"></h1>
+        <button id="restartBtn">다시 시작</button>
+    </div>
+    <button id="settingsBtn">⚙️ 설정</button>
+    <div id="settingsModal" style="display: none;">
+        <div class="settings-content">
+            <h2>게임 설정</h2>
+            <button id="cameraToggleBtn">카메라: 고정</button>
+            <button id="closeSettingsBtn">닫기</button>
+        </div>
+    </div>
+    <canvas id="gameCanvas"></canvas>
+    <div class="controls">
+        <div id="player1Controls" class="player-controls active">
+            <h2>플레이어 1</h2>
+            <label for="angle1">각도:</label>
+            <input type="range" id="angle1" name="angle1" min="0" max="180" value="0">
+            <span id="angleValue1">0</span>
+            <br>
+            <label for="power1">힘:</label>
+            <input type="range" id="power1" name="power1" min="1" max="100" value="50">
+            <span id="powerValue1">50</span>
+            <br>
+            <button id="fireButton1">발사!</button>
+        </div>
+        <div id="player2Controls" class="player-controls">
+            <h2>플레이어 2</h2>
+            <label for="angle2">각도:</label>
+            <input type="range" id="angle2" name="angle2" min="0" max="180" value="180">
+            <span id="angleValue2">180</span>
+            <br>
+            <label for="power2">힘:</label>
+            <input type="range" id="power2" name="power2" min="1" max="100" value="50">
+            <span id="powerValue2">50</span>
+            <br>
+            <button id="fireButton2">발사!</button>
+        </div>
+    </div>
+    <div id="mobileControls">
+        <div class="move-btns">
+            <button id="btnLeft">◀</button>
+            <button id="btnRight">▶</button>
+        </div>
+        <button id="btnJump">Jump</button>
+    </div>
+    <div id="gameStatus"></div>
+    <script src="game.js"></script>
+</body>
+</html>
