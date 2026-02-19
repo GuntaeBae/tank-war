@@ -8,6 +8,7 @@ let width, height;
 
 // UI 요소
 const gameStatus = document.getElementById('gameStatus');
+let currentAimInfo = { angle: 0, power: 0 };
 
 // 이미지 로더
 const resourceLoader = {
@@ -181,34 +182,76 @@ function generateWind() {
     wind = (Math.random() - 0.5) * 0.1;
 }
 
-function drawWindIndicator() {
+function drawHUD() {
     ctx.save();
     const cx = width / 2;
     const cy = 30;
+    
+    // 1. 데이터 준비
+    const windSpeed = Math.round(Math.abs(wind) * 1000);
+    let turnLabel = (gameMode === 'pve' && currentPlayer === 2) ? "CPU" : `P${currentPlayer}`;
+    
+    let displayAngle = currentAimInfo.angle;
+    let displayPower = currentAimInfo.power;
+    
+    // 조준 중이 아닐 때는 마지막 발사 정보 표시
+    if (!isAiming && !projectile) {
+         const info = lastFireInfo[currentPlayer];
+         let deg = (-info.angle * 180 / Math.PI + 360) % 360;
+         let pwr = (info.power / 150) * 100;
+         displayAngle = Math.round(deg);
+         displayPower = Math.round(pwr);
+    }
+
+    // 텍스트 구성
+    let infoText = `${turnLabel} | A:${displayAngle}° P:${displayPower} | WIND:${windSpeed}`;
+    
+    if (gameMode === 'pve') {
+        const tank2 = tanks[1];
+        infoText += ` | NPC HP:${Math.round(tank2.health)}`;
+    }
+
+    ctx.font = '12px Arial';
+    const textMetrics = ctx.measureText(infoText);
+    const textWidth = textMetrics.width;
+
+    // 통합 패널 배경
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+    ctx.beginPath();
+    // 내용에 따라 높이 조절
+    let panelHeight = 45;
+    let panelWidth = Math.max(300, textWidth + 60);
+    
+    if (ctx.roundRect) {
+        ctx.roundRect(cx - panelWidth / 2, 10, panelWidth, panelHeight, 15);
+    } else {
+        ctx.rect(cx - panelWidth / 2, 10, panelWidth, panelHeight);
+    }
+    ctx.fill();
+
+    // 2. 바람 게이지 (Wind Bar)
     const barWidth = 200;
+    let currentY = cy + 10;
     
-    // Background bar
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.2)';
-    ctx.fillRect(cx - barWidth/2, cy - 2, barWidth, 4);
-    
+    // 텍스트 그리기
+    ctx.fillStyle = '#ddd';
+    ctx.textAlign = 'center';
+    ctx.fillText(infoText, cx, cy - 5);
+
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+    ctx.fillRect(cx - barWidth/2, currentY, barWidth, 4);
+
     // Center marker
-    ctx.fillStyle = '#333';
-    ctx.fillRect(cx - 1, cy - 10, 2, 20);
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(cx - 1, currentY - 5, 2, 14);
     
     // Wind bar
     const windMax = 0.05;
     let windWidth = (wind / windMax) * (barWidth / 2);
+    ctx.fillStyle = wind > 0 ? '#00BFFF' : '#FF4500'; 
+    ctx.fillRect(cx, currentY, windWidth, 4);
     
-    ctx.fillStyle = wind > 0 ? '#0000FF' : '#FF0000'; // Blue for Right, Red for Left
-    ctx.fillRect(cx, cy - 2, windWidth, 4);
-    
-    // Text
-    ctx.fillStyle = '#333';
-    ctx.font = 'bold 14px Arial';
-    ctx.textAlign = 'center';
-    const windSpeed = Math.round(Math.abs(wind) * 1000);
-    ctx.fillText(`WIND: ${windSpeed}`, cx, cy - 20);
-    
+
     ctx.restore();
 }
 
@@ -229,30 +272,6 @@ function spawnItem() {
         
         items.push(new Item(x, type));
     }
-}
-
-function drawNPCStats() {
-    if (gameMode !== 'pve') return;
-
-    ctx.save();
-    const cx = width / 2;
-    const cy = 70; // Below wind indicator
-
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
-    ctx.beginPath();
-    ctx.roundRect(cx - 200, cy - 15, 400, 30, 15);
-    ctx.fill();
-
-    ctx.fillStyle = '#fff';
-    ctx.font = 'bold 16px Arial';
-    ctx.textAlign = 'center';
-    
-    const tank2 = tanks[1];
-    const accText = Math.max(0, 100 - tank2.accuracy * 5); // Simple representation
-    const pwrText = Math.round(tank2.powerMult * 100);
-    
-    ctx.fillText(`NPC LEVEL: ${npcLevel} | HP: ${Math.round(tank2.health)} | ACC: ${accText}% | PWR: ${pwrText}%`, cx, cy + 5);
-    ctx.restore();
 }
 
 function updateRankings(level) {
@@ -461,8 +480,7 @@ function gameLoop() {
 
     ctx.restore();
 
-    drawWindIndicator();
-    drawNPCStats();
+    drawHUD();
 
     if (levelMessageAlpha > 0) {
         ctx.save();
@@ -553,10 +571,9 @@ function updateUI(player, angle, power) {
     let degrees = (-angle * 180 / Math.PI + 360) % 360;
     const uiPower = (power / 150) * 100;
 
+    currentAimInfo = { angle: Math.round(degrees), power: Math.round(uiPower) };
     const shotInfo = document.getElementById('shotInfo');
-    if (shotInfo) {
-        shotInfo.textContent = `Angle: ${Math.round(degrees)}° | Power: ${Math.round(uiPower)}`;
-    }
+    if (shotInfo) shotInfo.style.display = 'none';
 }
 
 function switchPlayer() {
@@ -566,8 +583,7 @@ function switchPlayer() {
     
     // 턴 정보 업데이트
     const turnInfo = document.getElementById('turnInfo');
-    if (turnInfo) turnInfo.textContent = gameMode === 'pve' && currentPlayer === 2 ? "Computer Turn" : `Player ${currentPlayer} Turn`;
-    if (turnInfo) turnInfo.style.color = currentPlayer === 1 ? '#4CAF50' : '#FF5722';
+    if (turnInfo) turnInfo.style.display = 'none';
     
     turnCount++;
     if (turnCount % 3 === 0) {
@@ -817,6 +833,26 @@ function setupControls() {
     const closeSettingsBtn = document.getElementById('closeSettingsBtn');
 
     if (settingsBtn) {
+        settingsBtn.textContent = '⚙️';
+        settingsBtn.style.position = 'absolute';
+        settingsBtn.style.top = '20px';
+        settingsBtn.style.right = '20px';
+        settingsBtn.style.width = '40px';
+        settingsBtn.style.height = '40px';
+        settingsBtn.style.fontSize = '24px';
+        settingsBtn.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
+        settingsBtn.style.color = 'white';
+        settingsBtn.style.border = 'none';
+        settingsBtn.style.borderRadius = '50%';
+        settingsBtn.style.cursor = 'pointer';
+        settingsBtn.style.display = 'flex';
+        settingsBtn.style.justifyContent = 'center';
+        settingsBtn.style.alignItems = 'center';
+        settingsBtn.style.zIndex = '1000';
+        
+        settingsBtn.addEventListener('mouseenter', () => settingsBtn.style.backgroundColor = 'rgba(0, 0, 0, 0.8)');
+        settingsBtn.addEventListener('mouseleave', () => settingsBtn.style.backgroundColor = 'rgba(0, 0, 0, 0.5)');
+
         settingsBtn.addEventListener('click', () => {
             settingsModal.style.display = 'flex';
         });
@@ -910,15 +946,23 @@ function init() {
     homeBtn.style.position = 'absolute';
     homeBtn.style.top = '20px';
     homeBtn.style.left = '20px';
+    homeBtn.style.width = '40px';
+    homeBtn.style.height = '40px';
     homeBtn.style.fontSize = '24px';
-    homeBtn.style.padding = '5px 10px';
     homeBtn.style.cursor = 'pointer';
-    homeBtn.style.backgroundColor = 'rgba(255, 255, 255, 0.8)';
-    homeBtn.style.border = '2px solid #333';
-    homeBtn.style.borderRadius = '10px';
+    homeBtn.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
+    homeBtn.style.color = 'white';
+    homeBtn.style.border = 'none';
+    homeBtn.style.borderRadius = '50%';
+    homeBtn.style.justifyContent = 'center';
+    homeBtn.style.alignItems = 'center';
     homeBtn.style.zIndex = '1000';
     homeBtn.style.display = 'none'; // 초기에는 숨김
     homeBtn.title = "초기 화면으로";
+    
+    homeBtn.addEventListener('mouseenter', () => homeBtn.style.backgroundColor = 'rgba(0, 0, 0, 0.8)');
+    homeBtn.addEventListener('mouseleave', () => homeBtn.style.backgroundColor = 'rgba(0, 0, 0, 0.5)');
+    
     document.body.appendChild(homeBtn);
 
     homeBtn.addEventListener('click', () => {
@@ -960,7 +1004,7 @@ function init() {
         canvas.height = window.innerHeight;
         startGame(canvas.width, canvas.height, mode);
         updateSkillUI();
-        homeBtn.style.display = 'block';
+        homeBtn.style.display = 'flex';
     };
 
     if (pvpBtn) {
