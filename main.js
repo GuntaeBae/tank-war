@@ -737,35 +737,38 @@ function setupControls() {
     });
 
     // Skill Buttons
-    const setupSkillBtn = (id, player, type) => {
-        const btn = document.getElementById(id);
-        if (!btn) return;
-        btn.addEventListener('click', () => {
-            if (currentPlayer !== player || gameOver || projectile) return;
-            const tank = tanks[player - 1];
-            
-            if (type === 'shield') {
-                if (tank.cooldowns.shield === 0) {
-                    tank.shield = true;
-                    tank.cooldowns.shield = 3; // 3 turns cooldown
-                    updateSkillUI();
-                    gameStatus.textContent = `Player ${player} activated Shield!`;
-                }
-            } else if (type === 'double') {
-                if (tank.cooldowns.double === 0) {
-                    tank.doubleShot = true;
-                    tank.cooldowns.double = 3; // 3 turns cooldown
-                    updateSkillUI();
-                    gameStatus.textContent = `Player ${player} activated Double Shot!`;
-                }
+    const btnShield = document.getElementById('btnShield');
+    const btnDouble = document.getElementById('btnDouble');
+
+    if (btnShield) {
+        btnShield.addEventListener('click', () => {
+            if (gameOver || projectile) return;
+            if (gameMode === 'pve' && currentPlayer === 2) return;
+
+            const tank = tanks[currentPlayer - 1];
+            if (tank.cooldowns.shield === 0) {
+                tank.shield = true;
+                tank.cooldowns.shield = 3; // 3 turns cooldown
+                updateSkillUI();
+                gameStatus.textContent = `Player ${currentPlayer} activated Shield!`;
             }
         });
-    };
+    }
 
-    setupSkillBtn('p1ShieldBtn', 1, 'shield');
-    setupSkillBtn('p1DoubleBtn', 1, 'double');
-    setupSkillBtn('p2ShieldBtn', 2, 'shield');
-    setupSkillBtn('p2DoubleBtn', 2, 'double');
+    if (btnDouble) {
+        btnDouble.addEventListener('click', () => {
+            if (gameOver || projectile) return;
+            if (gameMode === 'pve' && currentPlayer === 2) return;
+
+            const tank = tanks[currentPlayer - 1];
+            if (tank.cooldowns.double === 0) {
+                tank.doubleShot = true;
+                tank.cooldowns.double = 3; // 3 turns cooldown
+                updateSkillUI();
+                gameStatus.textContent = `Player ${currentPlayer} activated Double Shot!`;
+            }
+        });
+    }
 
 
     // Player 2 Controls
@@ -920,6 +923,11 @@ function init() {
 
     homeBtn.addEventListener('click', () => {
         if (confirm('게임을 종료하고 초기 화면으로 돌아가시겠습니까?')) {
+            // 확인 버튼을 눌렀을 때만 전체 화면 모드 해제
+            if (document.fullscreenElement) {
+                document.exitFullscreen().catch(err => console.log(err));
+            }
+
             if (animationFrameId) cancelAnimationFrame(animationFrameId);
             gameOver = true; // 진행 중인 로직 중단용
             gameStarted = false;
