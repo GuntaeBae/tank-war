@@ -1,16 +1,24 @@
 class Tank {
-    constructor(x, player, terrain) {
+    constructor(x, player, terrain, typeInfo) {
         this.player = player;
-        this.baseImg = resourceLoader.images['side_tank.png'];
-        this.width = 60; 
-        this.height = 25; 
+        
+        const stats = typeInfo || {};
+        const imgSrc = stats.image || 'side_tank.png';
+        this.baseImg = resourceLoader.images[imgSrc];
+        
+        this.width = stats.width || 60; 
+        this.height = stats.height || 25; 
         this.x = x;
         this.y = terrain[Math.floor(x)] - this.height / 2;
         this.turretLength = 40;
         this.turretHeight = 6;
-        this.health = 100;
+        
+        this.health = stats.hp !== undefined ? stats.hp : 100;
+        this.powerMult = stats.power !== undefined ? stats.power : 1.0;
+        this.maxFuel = stats.fuel !== undefined ? stats.fuel : 300;
+        this.maxHealth = this.health;
+        
         this.doubleShot = false;
-        this.maxFuel = 300;
         this.fuel = this.maxFuel;
         this.wheelRadius = 5;
         this.wheelOffsets = [-20, -7, 6, 19];
@@ -21,14 +29,15 @@ class Tank {
         
         // NPC Stats
         this.accuracy = 0; // Error range in degrees
-        this.powerMult = 1;
 
         // Tint Cache for Player 2
         if (this.player === 2) {
+            const dpr = window.devicePixelRatio || 1;
             this.cacheCanvas = document.createElement('canvas');
-            this.cacheCanvas.width = this.width;
-            this.cacheCanvas.height = this.height;
+            this.cacheCanvas.width = this.width * dpr;
+            this.cacheCanvas.height = this.height * dpr;
             this.cacheCtx = this.cacheCanvas.getContext('2d');
+            this.cacheCtx.scale(dpr, dpr);
             this.lastTintLevel = -1;
             this.lastGameMode = '';
         }
@@ -36,7 +45,9 @@ class Tank {
 
     updateTintCache(level) {
         this.cacheCtx.clearRect(0, 0, this.width, this.height);
-        this.cacheCtx.drawImage(this.baseImg, 0, 0, this.width, this.height);
+        if (this.baseImg) {
+            this.cacheCtx.drawImage(this.baseImg, 0, 0, this.width, this.height);
+        }
         
         this.cacheCtx.globalCompositeOperation = 'source-atop';
         if (gameMode === 'pve') {
@@ -89,7 +100,7 @@ class Tank {
         ctx.fillStyle = 'red';
         ctx.fillRect(-healthBarWidth / 2, -this.height - 15, healthBarWidth, healthBarHeight);
         ctx.fillStyle = 'green';
-        ctx.fillRect(-healthBarWidth / 2, -this.height - 15, healthBarWidth * (this.health / 100), healthBarHeight);
+        ctx.fillRect(-healthBarWidth / 2, -this.height - 15, healthBarWidth * (this.health / this.maxHealth), healthBarHeight);
 
         // Fuel bar
         ctx.fillStyle = '#555';
@@ -118,7 +129,9 @@ class Tank {
         if (this.player === 1) {
             ctx.scale(-1, 1);
             // Tank base
-            ctx.drawImage(this.baseImg, -this.width / 2, -this.height/2, this.width, this.height);
+            if (this.baseImg) {
+                ctx.drawImage(this.baseImg, -this.width / 2, -this.height/2, this.width, this.height);
+            }
         } else {
             // Player 2 (NPC or P2)
             const currentLevel = gameMode === 'pve' ? npcLevel : 0;
@@ -228,11 +241,12 @@ class Tank {
 }
 
 class Projectile {
-    constructor(x, y, angle, power, player, isDoubleShot = false) {
+    constructor(x, y, angle, power, player, damageMult = 1, isDoubleShot = false) {
         this.x = x;
         this.y = y;
         this.radius = 5;
         this.player = player;
+        this.damageMult = damageMult;
         const speed = power / 5; 
         this.vx = speed * Math.cos(angle);
         this.vy = speed * Math.sin(angle);
@@ -428,6 +442,63 @@ class Item {
         else if (this.type === 'POWER') text = 'P';
         ctx.fillText(text, 0, 2);
         
+        ctx.restore();
+    }
+}
+
+class Bird {
+    constructor() {
+        this.reset();
+        // 처음 생성될 때는 화면 전체에 랜덤하게 배치
+        this.x = Math.random() * width;
+    }
+
+    reset() {
+        // 화면 상단 40% 영역에서 비행
+        this.y = Math.random() * (height * 0.4);
+        this.speed = Math.random() * 2 + 1;
+        this.size = Math.random() * 3 + 2;
+        this.wingAngle = Math.random() * Math.PI * 2;
+        this.wingSpeed = 0.1 + Math.random() * 0.1;
+        
+        // 50% 확률로 왼쪽/오른쪽 출발 결정
+        if (Math.random() < 0.5) {
+            this.direction = 1; // 오른쪽으로 이동
+            this.x = -50;
+        } else {
+            this.direction = -1; // 왼쪽으로 이동
+            this.x = width + 50;
+        }
+    }
+
+    update() {
+        // 이동 (바람의 영향을 받음)
+        this.x += (this.speed * this.direction) + (wind * 30);
+        this.y += Math.sin(this.wingAngle) * 0.5; // 약간의 상하 움직임
+        this.wingAngle += this.wingSpeed;
+
+        // 화면 밖으로 나가면 위치 리셋
+        if ((this.direction === 1 && this.x > width + 50) || 
+            (this.direction === -1 && this.x < -50)) {
+            this.reset();
+        }
+    }
+
+    draw() {
+        ctx.save();
+        ctx.translate(this.x, this.y);
+        ctx.scale(this.direction, 1); // 진행 방향에 맞춰 반전
+        
+        ctx.strokeStyle = 'rgba(50, 50, 50, 0.7)';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        
+        // 날개짓 애니메이션 (V자 모양 변형)
+        const wingY = Math.sin(this.wingAngle) * 3;
+        ctx.moveTo(-this.size, -wingY);
+        ctx.quadraticCurveTo(0, 0, this.size, -wingY);
+        
+        ctx.stroke();
         ctx.restore();
     }
 }

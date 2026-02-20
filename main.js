@@ -30,6 +30,18 @@ const resourceLoader = {
             };
             img.onerror = () => {
                 console.error(`Failed to load image: ${url}`);
+                
+                // [수정] 이미지 로딩 실패 시 게임 중단을 막기 위한 더미 이미지 생성
+                const dummyCanvas = document.createElement('canvas');
+                dummyCanvas.width = 60;
+                dummyCanvas.height = 30;
+                const dCtx = dummyCanvas.getContext('2d');
+                dCtx.fillStyle = '#FF00FF'; // 에러 식별용 마젠타 색상
+                dCtx.fillRect(0, 0, 60, 30);
+                const dummyImg = new Image();
+                dummyImg.src = dummyCanvas.toDataURL();
+                this.images[url] = dummyImg;
+
                 this.loadedCount++;
                 if (this.loadedCount === this.totalCount) {
                     callback();
@@ -101,11 +113,21 @@ const soundManager = {
     }
 };
 
+let selectedTankType = 'normal';
+
+window.TANK_TYPES = {
+    'normal': { name: 'Normal', hp: 100, power: 1.0, fuel: 300, desc: '밸런스형 기본 탱크', image: 'side_tank.png', width: 60, height: 25 },
+    'heavy': { name: 'Heavy', hp: 150, power: 1.4, fuel: 200, desc: '높은 체력과 공격력, 낮은 기동성', image: 'tank_base.png', width: 65, height: 30 },
+    'light': { name: 'Light', hp: 70, power: 0.8, fuel: 500, desc: '빠른 이동 속도, 낮은 체력', image: 'tank_turret.png', width: 50, height: 20 }
+};
+
 // ---------------------------------
 // 게임 상태 및 상수
 // ---------------------------------
 let wind = 0;
+let windTime = 0;
 let turnCount = 0;
+let totalScore = 0;
 let currentPlayer = 1;
 let gameOver = false;
 let gameStarted = false;
@@ -139,6 +161,7 @@ let terrain = [];
 let tanks = [];
 let particles = [];
 let clouds = [];
+let birds = [];
 let items = [];
 let projectile = null;
 let animationFrameId;
@@ -156,7 +179,7 @@ function fire(player, angle, power) {
     const startX = tank.x + tank.turretLength * Math.cos(angle);
     const startY = tank.y + tank.turretLength * Math.sin(angle);
 
-    projectile = new Projectile(startX, startY, angle, power, player, tank.doubleShot);
+    projectile = new Projectile(startX, startY, angle, power, player, tank.powerMult, tank.doubleShot);
     tank.applyRecoil(angle, power);
     tank.doubleShot = false; // 아이템 사용 후 초기화
     soundManager.playShoot();
@@ -177,9 +200,67 @@ function createSmoke(x, y) {
     particles.push(new Smoke(x, y));
 }
 
-function generateWind() {
-    // -0.05 ~ 0.05 사이의 바람 (중력이 0.1임)
-    wind = (Math.random() - 0.5) * 0.1;
+function updateWind() {
+    let difficulty = 1;
+    if (gameMode === 'pve') {
+        difficulty = 1 + (npcLevel - 1) * 0.4; // 레벨이 오를수록 바람 세기 증가
+    } else {
+        difficulty = 1 + Math.min(turnCount * 0.1, 2); // PvP는 턴이 지날수록 증가
+    }
+
+    windTime += 0.0005 * difficulty; // 기본 속도를 10배 늦추고, 난이도(레벨)에 비례하여 빨라지게 설정
+
+    // 복합 사인파로 불규칙하고 자연스러운 바람 변화 구현
+    const noise = Math.sin(windTime) + Math.sin(windTime * 2.3) * 0.5;
+    const strength = 0.02 * difficulty; // 기본 세기에 난이도 반영
+    
+    wind = noise * strength;
+}
+
+function drawBackground() {
+    // 1. 기본 배경색
+    ctx.fillStyle = currentTheme.bg;
+    ctx.fillRect(0, 0, width, height);
+
+    // 2. 그라데이션 오버레이 (입체감)
+    const gradient = ctx.createLinearGradient(0, 0, 0, height);
+    gradient.addColorStop(0, 'rgba(0, 0, 0, 0.1)');
+    gradient.addColorStop(1, 'rgba(255, 255, 255, 0.3)');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, width, height);
+
+    // 3. 격자 패턴 (공간감, 줌인 시 깨짐 방지)
+    ctx.save();
+    ctx.translate(width / 2, height / 2);
+    ctx.scale(camera.scale, camera.scale);
+    ctx.translate(-camera.x, -camera.y);
+
+    const gridSize = 100;
+    // 화면에 보이는 영역만 계산하여 그리기 (최적화)
+    const left = camera.x - (width / 2) / camera.scale;
+    const right = camera.x + (width / 2) / camera.scale;
+    const top = camera.y - (height / 2) / camera.scale;
+    const bottom = camera.y + (height / 2) / camera.scale;
+
+    const startX = Math.floor(left / gridSize) * gridSize;
+    const endX = Math.ceil(right / gridSize) * gridSize;
+    const startY = Math.floor(top / gridSize) * gridSize;
+    const endY = Math.ceil(bottom / gridSize) * gridSize;
+
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+
+    for (let x = startX; x <= endX; x += gridSize) {
+        ctx.moveTo(x, top);
+        ctx.lineTo(x, bottom);
+    }
+    for (let y = startY; y <= endY; y += gridSize) {
+        ctx.moveTo(left, y);
+        ctx.lineTo(right, y);
+    }
+    ctx.stroke();
+    ctx.restore();
 }
 
 function drawHUD() {
@@ -246,7 +327,7 @@ function drawHUD() {
     ctx.fillRect(cx - 1, currentY - 5, 2, 14);
     
     // Wind bar
-    const windMax = 0.05;
+    const windMax = 0.1; // 더 강한 바람을 표시하기 위해 게이지 범위 확장
     let windWidth = (wind / windMax) * (barWidth / 2);
     ctx.fillStyle = wind > 0 ? '#00BFFF' : '#FF4500'; 
     ctx.fillRect(cx, currentY, windWidth, 4);
@@ -274,10 +355,10 @@ function spawnItem() {
     }
 }
 
-function updateRankings(level) {
+function updateRankings(level, name, score) {
     const date = new Date().toLocaleDateString();
-    rankings.push({ level: level, date: date });
-    rankings.sort((a, b) => b.level - a.level);
+    rankings.push({ level: level, name: name, score: score || 0, date: date });
+    rankings.sort((a, b) => (b.score || 0) - (a.score || 0)); // 점수 기준 내림차순 정렬
     rankings = rankings.slice(0, 5); // Keep top 5
     localStorage.setItem('fortress_rankings', JSON.stringify(rankings));
     displayRankings();
@@ -286,7 +367,7 @@ function updateRankings(level) {
 // ---------------------------------
 // 게임 초기화 및 루프
 // ---------------------------------
-function startGame(canvasWidth, canvasHeight, mode = 'pvp') {
+function startGame(canvasWidth, canvasHeight, mode = 'pvp', tankType1 = 'normal', tankType2 = 'normal') {
     width = canvasWidth;
     height = canvasHeight;
 
@@ -295,6 +376,7 @@ function startGame(canvasWidth, canvasHeight, mode = 'pvp') {
     tanks = [];
     particles = [];
     clouds = [];
+    birds = [];
     items = [];
     currentPlayer = 1;
     turnCount = 0;
@@ -312,7 +394,7 @@ function startGame(canvasWidth, canvasHeight, mode = 'pvp') {
         levelMessage = `Level ${npcLevel}: ${currentTheme.name}`;
     }
     levelMessageAlpha = 3.0; // 3초 정도 지속 효과 (1.0 이상이면 불투명 유지)
-    generateWind();
+    windTime = Math.random() * 1000; // 바람 시작점 랜덤화
     
     // Reset Camera
     camera = { x: width / 2, y: height / 2, scale: 1 };
@@ -321,8 +403,8 @@ function startGame(canvasWidth, canvasHeight, mode = 'pvp') {
     
     const tank1X = Math.floor(width * 0.15);
     const tank2X = Math.floor(width * 0.85);
-    tanks.push(new Tank(tank1X, 1, terrain));
-    tanks.push(new Tank(tank2X, 2, terrain));
+    tanks.push(new Tank(tank1X, 1, terrain, window.TANK_TYPES[tankType1]));
+    tanks.push(new Tank(tank2X, 2, terrain, window.TANK_TYPES[tankType2]));
 
     // Setup NPC for PvE
     if (gameMode === 'pve') {
@@ -335,6 +417,10 @@ function startGame(canvasWidth, canvasHeight, mode = 'pvp') {
     for (let i = 0; i < 5; i++) {
         clouds.push(new Cloud());
     }
+    
+    for (let i = 0; i < 10; i++) {
+        birds.push(new Bird());
+    }
 
     if (animationFrameId) {
         cancelAnimationFrame(animationFrameId);
@@ -345,6 +431,7 @@ function startGame(canvasWidth, canvasHeight, mode = 'pvp') {
 
 function gameLoop() {
     if (gameOver) return;
+    updateWind(); // 매 프레임 실시간으로 바람 업데이트
 
     // Tank Movement
     if (!projectile) {
@@ -377,21 +464,36 @@ function gameLoop() {
     let targetScale = 1;
     let targetX = width / 2;
     let targetY = height / 2;
+    let lerpFactor = 0.05; // 기본: 부드럽게 (줌 인/아웃 시)
 
     if (cameraFollowsProjectile && projectile) {
         targetScale = 1.5;
         targetX = projectile.x;
         targetY = projectile.y;
+        lerpFactor = 0.1; // 추적 시: 빠르게 (박진감)
+    } else if (tanks.length >= 2) {
+        // 탱크 간 거리에 따른 동적 카메라 줌
+        const t1 = tanks[0];
+        const t2 = tanks[1];
+        
+        const midX = (t1.x + t2.x) / 2;
+        const midY = (t1.y + t2.y) / 2;
+        const dist = Math.hypot(t1.x - t2.x, t1.y - t2.y);
+        
+        // 거리가 가까울수록 확대, 멀수록 축소 (여백 400px 기준)
+        let zoom = width / (dist + 400);
+        targetScale = Math.max(0.7, Math.min(1.4, zoom)); // 최소 0.7배 ~ 최대 1.4배 제한
+        targetX = midX;
+        targetY = midY;
     }
 
     // Smooth camera movement (Lerp)
-    camera.x += (targetX - camera.x) * 0.1;
-    camera.y += (targetY - camera.y) * 0.1;
-    camera.scale += (targetScale - camera.scale) * 0.1;
+    camera.x += (targetX - camera.x) * lerpFactor;
+    camera.y += (targetY - camera.y) * lerpFactor;
+    camera.scale += (targetScale - camera.scale) * lerpFactor;
 
     ctx.clearRect(0, 0, width, height);
-    ctx.fillStyle = currentTheme.bg;
-    ctx.fillRect(0, 0, width, height);
+    drawBackground();
 
     ctx.save();
     // Apply Camera Transform
@@ -402,6 +504,11 @@ function gameLoop() {
     clouds.forEach(cloud => {
         cloud.update();
         cloud.draw();
+    });
+    
+    birds.forEach(bird => {
+        bird.update();
+        bird.draw();
     });
 
     drawTerrain(width, height);
@@ -505,7 +612,7 @@ function gameLoop() {
 // ---------------------------------
 function applyItemEffect(tank, item) {
     if (item.type === 'HEALTH') {
-        tank.health = Math.min(tank.health + 30, 100);
+        tank.health = Math.min(tank.health + 30, tank.maxHealth);
         gameStatus.textContent = `Player ${tank.player} got Health Pack!`;
     } else if (item.type === 'POWER') {
         tank.doubleShot = true;
@@ -524,11 +631,10 @@ function handleHit(tank) {
         return; // No damage
     }
 
-    let damage = Math.floor(Math.random() * 20) + 25;
+    let damage = 25 * (projectile.damageMult || 1); // 기본 데미지 25 * 배율
     
     if (projectile && projectile.isDoubleShot) {
         damage *= 2;
-        if (projectile.player === 2 && gameMode === 'pve') damage *= tanks[1].powerMult;
     }
 
     tank.health -= damage;
@@ -548,14 +654,24 @@ function handleHit(tank) {
         if (gameMode === 'pve') {
             if (winner === 1) {
                 // Player Wins -> Next Level
+                
+                // 점수 계산: (남은 체력 * 10) + (턴 보너스)
+                const healthScore = Math.round(tank.health * 10); // tank는 패배자이므로 승자(tanks[0])의 체력을 써야 함. 하지만 여기 tank는 패배한 탱크임.
+                const winnerTank = tanks[0];
+                const winHealthScore = Math.round(winnerTank.health * 10);
+                const turnBonus = Math.max(0, (20 - turnCount) * 50); // 20턴 이내 클리어 시 보너스
+                const levelScore = winHealthScore + turnBonus;
+                totalScore += levelScore;
+                gameStatus.textContent = `You Win! Score: ${levelScore} (Total: ${totalScore})`;
+
                 setTimeout(() => {
                     npcLevel++;
-                    startGame(width, height, 'pve');
+                    startGame(width, height, 'pve', selectedTankType, 'normal');
                 }, 2000);
                 return;
             } else {
                 // NPC Wins -> Game Over
-                updateRankings(npcLevel);
+                // 랭킹 저장은 UI에서 처리
             }
         }
         
@@ -563,6 +679,14 @@ function handleHit(tank) {
         const winnerText = document.getElementById('winnerText');
         
         winnerText.textContent = gameMode === 'pve' ? `Game Over (Level ${npcLevel})` : `Player ${winner} Wins!`;
+        
+        const rankingInputContainer = document.getElementById('rankingInputContainer');
+        if (rankingInputContainer) {
+            // PvE 모드이고 플레이어가 졌을 때만 랭킹 입력 표시
+            rankingInputContainer.style.display = (gameMode === 'pve' && winner !== 1) ? 'block' : 'none';
+            if (rankingInputContainer.style.display === 'block') document.getElementById('playerNameInput').value = '';
+        }
+
         gameOverScreen.style.display = 'flex';
     }
 }
@@ -586,9 +710,6 @@ function switchPlayer() {
     if (turnInfo) turnInfo.style.display = 'none';
     
     turnCount++;
-    if (turnCount % 3 === 0) {
-        generateWind();
-    }
     
     // Cooldown Management
     const currentTank = tanks[currentPlayer - 1];
@@ -708,8 +829,6 @@ function computerFire() {
 
 function getMousePos(e) {
     const rect = canvas.getBoundingClientRect();
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
     
     let clientX = e.clientX;
     let clientY = e.clientY;
@@ -723,8 +842,8 @@ function getMousePos(e) {
     }
 
     return {
-        x: (clientX - rect.left) * scaleX,
-        y: (clientY - rect.top) * scaleY
+        x: clientX - rect.left,
+        y: clientY - rect.top
     };
 }
 
@@ -906,7 +1025,7 @@ function displayRankings() {
         html += '<li>No records yet</li>';
     } else {
         rankings.forEach((r, i) => {
-            html += `<li>${i + 1}. Level ${r.level} (${r.date})</li>`;
+            html += `<li>${i + 1}. ${r.name || 'Unknown'} - ${r.score || 0} pts (Lv.${r.level})</li>`;
         });
     }
     html += '</ul>';
@@ -920,11 +1039,15 @@ function resizeCanvas() {
     }
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(() => {
-        canvas.width = window.innerWidth;
-        canvas.height = window.innerHeight;
+        const dpr = window.devicePixelRatio || 1;
+        canvas.width = window.innerWidth * dpr;
+        canvas.height = window.innerHeight * dpr;
+        canvas.style.width = `${window.innerWidth}px`;
+        canvas.style.height = `${window.innerHeight}px`;
+        ctx.scale(dpr, dpr);
         
         if (gameStarted) {
-            startGame(canvas.width, canvas.height, gameMode);
+            startGame(window.innerWidth, window.innerHeight, gameMode, selectedTankType, 'normal');
         }
     }, 250);
 }
@@ -939,6 +1062,88 @@ function init() {
     const pveBtn = document.getElementById('pveBtn');
     const startScreen = document.getElementById('startScreen');
     const gameTitle = document.getElementById('gameTitle');
+    const gameOverScreen = document.getElementById('gameOverScreen');
+
+    // [수정] UI가 캔버스 위에 확실히 오도록 설정 및 초기 캔버스 클릭 무시
+    if (startScreen) {
+        startScreen.style.zIndex = '1000';
+        startScreen.style.position = 'absolute';
+        startScreen.style.width = '100%';
+        startScreen.style.height = '100%';
+    }
+    // 초기 화면에서는 캔버스가 클릭 이벤트를 가로채지 않도록 설정
+    canvas.style.pointerEvents = 'none';
+
+    // 탱크 선택 UI 컨테이너 생성 (기존 버튼 대체)
+    let tankSelectionContainer = document.getElementById('tankSelectionContainer');
+    if (!tankSelectionContainer) {
+        tankSelectionContainer = document.createElement('div');
+        tankSelectionContainer.id = 'tankSelectionContainer';
+        tankSelectionContainer.style.display = 'flex';
+        tankSelectionContainer.style.justifyContent = 'center';
+        tankSelectionContainer.style.flexWrap = 'wrap';
+        tankSelectionContainer.style.gap = '15px';
+        tankSelectionContainer.style.margin = '20px 0';
+        tankSelectionContainer.style.zIndex = '1000';
+        tankSelectionContainer.style.position = 'relative';
+        
+        // 타이틀 뒤에 삽입
+        if (gameTitle && gameTitle.parentNode === startScreen) {
+            gameTitle.insertAdjacentElement('afterend', tankSelectionContainer);
+        } else {
+            startScreen.prepend(tankSelectionContainer);
+        }
+    }
+    tankSelectionContainer.innerHTML = ''; // 초기화
+
+    Object.keys(window.TANK_TYPES).forEach(type => {
+        const info = window.TANK_TYPES[type];
+        const btn = document.createElement('div');
+        
+        const isSelected = selectedTankType === type;
+        btn.style.border = isSelected ? '2px solid #FFD700' : '2px solid rgba(255, 255, 255, 0.3)';
+        btn.style.backgroundColor = isSelected ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.6)';
+        btn.style.borderRadius = '10px';
+        btn.style.padding = '15px';
+        btn.style.width = '140px';
+        btn.style.cursor = 'pointer';
+        btn.style.transition = 'all 0.2s ease';
+        btn.style.textAlign = 'center';
+        btn.style.color = 'white';
+        
+        // 데이터가 없을 경우를 대비한 기본값 설정 (NPC 기준)
+        const displayHp = info.hp !== undefined ? info.hp : 100;
+        const displayPower = info.power !== undefined ? info.power : 1.0;
+        const displayFuel = info.fuel !== undefined ? info.fuel : 300;
+        const displayDesc = info.desc || '기본 탱크';
+
+        btn.innerHTML = `
+            <div style="font-size: 1.2em; font-weight: bold; color: ${isSelected ? '#FFD700' : '#fff'}; margin-bottom: 5px;">${info.name}</div>
+            <img src="${info.image}" style="width: 50px; height: 30px; object-fit: contain; margin-bottom: 5px;">
+            <div style="font-size: 0.8em; color: #ccc; margin-bottom: 5px; height: 35px; overflow: hidden;">${displayDesc}</div>
+            <div style="display: flex; justify-content: space-around; font-size: 0.9em; border-top: 1px solid rgba(255,255,255,0.2); padding-top: 8px;">
+                <div title="Health">❤️ ${displayHp}</div>
+                <div title="Power">⚔️ ${Math.round(displayPower * 100)}%</div>
+            </div>
+            <div style="font-size: 0.9em; margin-top: 5px;" title="Fuel">⛽ ${displayFuel}</div>
+        `;
+
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            selectedTankType = type;
+            // UI 업데이트
+            Array.from(tankSelectionContainer.children).forEach(child => {
+                child.style.border = '2px solid rgba(255, 255, 255, 0.3)';
+                child.style.backgroundColor = 'rgba(0, 0, 0, 0.6)';
+                child.querySelector('div:first-child').style.color = '#fff';
+            });
+            btn.style.border = '2px solid #FFD700';
+            btn.style.backgroundColor = 'rgba(255, 255, 255, 0.2)';
+            btn.querySelector('div:first-child').style.color = '#FFD700';
+        });
+
+        tankSelectionContainer.appendChild(btn);
+    });
 
     // 홈 버튼 생성 (게임 중 초기 화면으로 돌아가기)
     const homeBtn = document.createElement('button');
@@ -946,8 +1151,8 @@ function init() {
     homeBtn.style.position = 'absolute';
     homeBtn.style.top = '20px';
     homeBtn.style.left = '20px';
-    homeBtn.style.width = '40px';
-    homeBtn.style.height = '40px';
+    homeBtn.style.width = '50px';
+    homeBtn.style.height = '50px';
     homeBtn.style.fontSize = '24px';
     homeBtn.style.cursor = 'pointer';
     homeBtn.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
@@ -959,28 +1164,39 @@ function init() {
     homeBtn.style.zIndex = '1000';
     homeBtn.style.display = 'none'; // 초기에는 숨김
     homeBtn.title = "초기 화면으로";
+    homeBtn.style.touchAction = 'manipulation'; // 모바일 터치 딜레이 제거
     
     homeBtn.addEventListener('mouseenter', () => homeBtn.style.backgroundColor = 'rgba(0, 0, 0, 0.8)');
     homeBtn.addEventListener('mouseleave', () => homeBtn.style.backgroundColor = 'rgba(0, 0, 0, 0.5)');
     
     document.body.appendChild(homeBtn);
 
-    homeBtn.addEventListener('click', () => {
-        if (confirm('게임을 종료하고 초기 화면으로 돌아가시겠습니까?')) {
-            // 확인 버튼을 눌렀을 때만 전체 화면 모드 해제
-            if (document.fullscreenElement) {
-                document.exitFullscreen().catch(err => console.log(err));
-            }
+    // 버튼 클릭 시 캔버스로 이벤트가 전파되어 게임 로직이 실행되는 것을 방지
+    const stopEvent = (e) => e.stopPropagation();
+    homeBtn.addEventListener('mousedown', stopEvent);
+    homeBtn.addEventListener('touchstart', stopEvent);
 
-            if (animationFrameId) cancelAnimationFrame(animationFrameId);
-            gameOver = true; // 진행 중인 로직 중단용
-            gameStarted = false;
-            startScreen.style.display = 'flex';
-            if (gameTitle) gameTitle.style.display = 'block';
-            gameOverScreen.style.display = 'none';
-            homeBtn.style.display = 'none';
-            displayRankings();
+    homeBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        
+        // 게임 일시 정지
+        if (animationFrameId) cancelAnimationFrame(animationFrameId);
+
+        // 확인 절차 없이 바로 홈으로 이동
+        if (document.fullscreenElement) {
+            document.exitFullscreen().catch(err => console.log(err));
         }
+
+        gameOver = true; // 진행 중인 로직 중단용
+        gameStarted = false;
+        startScreen.style.display = 'flex';
+        if (gameTitle) gameTitle.style.display = 'block';
+        if (gameOverScreen) gameOverScreen.style.display = 'none';
+        homeBtn.style.display = 'none';
+        
+        // [수정] 초기 화면 복귀 시 캔버스 입력 비활성화 (UI 클릭 허용)
+        canvas.style.pointerEvents = 'none';
+        displayRankings();
     });
 
     displayRankings();
@@ -998,25 +1214,51 @@ function init() {
         startScreen.style.display = 'none';
         if (gameTitle) gameTitle.style.display = 'none';
         gameStarted = true;
+        totalScore = 0; // 점수 초기화
+        
+        // [수정] 게임 시작 시 캔버스 입력 활성화
+        canvas.style.pointerEvents = 'auto';
         
         if (resizeTimer) clearTimeout(resizeTimer);
-        canvas.width = window.innerWidth;
-        canvas.height = window.innerHeight;
-        startGame(canvas.width, canvas.height, mode);
+        
+        const dpr = window.devicePixelRatio || 1;
+        canvas.width = window.innerWidth * dpr;
+        canvas.height = window.innerHeight * dpr;
+        canvas.style.width = `${window.innerWidth}px`;
+        canvas.style.height = `${window.innerHeight}px`;
+        ctx.scale(dpr, dpr);
+
+        startGame(window.innerWidth, window.innerHeight, mode, selectedTankType, 'normal');
         updateSkillUI();
         homeBtn.style.display = 'flex';
     };
 
     if (pvpBtn) {
-        pvpBtn.addEventListener('click', () => handleStart('pvp'));
+        pvpBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            handleStart('pvp');
+        });
     }
     
     if (pveBtn) {
-        pveBtn.addEventListener('click', () => handleStart('pve'));
+        pveBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            handleStart('pve');
+        });
+    }
+
+    const saveRankingBtn = document.getElementById('saveRankingBtn');
+    if (saveRankingBtn) {
+        saveRankingBtn.addEventListener('click', () => {
+            const nameInput = document.getElementById('playerNameInput');
+            const name = nameInput.value.trim() || 'Player';
+            updateRankings(npcLevel, name, totalScore);
+            document.getElementById('rankingInputContainer').style.display = 'none';
+            alert('랭킹이 저장되었습니다!');
+        });
     }
 
     const restartBtn = document.getElementById('restartBtn');
-    const gameOverScreen = document.getElementById('gameOverScreen');
     if (restartBtn) {
         restartBtn.addEventListener('click', () => {
             gameOverScreen.style.display = 'none';
@@ -1024,6 +1266,9 @@ function init() {
             if (gameTitle) gameTitle.style.display = 'block';
             gameStarted = false;
             homeBtn.style.display = 'none';
+            
+            // [수정] 초기 화면 복귀 시 캔버스 입력 비활성화
+            canvas.style.pointerEvents = 'none';
             displayRankings();
             // Or restart same mode:
             // startGame(width, height, gameMode);
@@ -1031,7 +1276,7 @@ function init() {
         });
     }
 
-    resourceLoader.load(['side_tank.png'], () => {
+    resourceLoader.load(['side_tank.png', 'tank_base.png', 'tank_turret.png'], () => {
         window.addEventListener('resize', resizeCanvas);
         
         canvas.addEventListener('mousedown', (e) => {

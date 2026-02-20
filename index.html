@@ -30,6 +30,10 @@
     </div>
     <div id="gameOverScreen" style="display: none;">
         <h1 id="winnerText"></h1>
+        <div id="rankingInputContainer" style="display: none; margin-bottom: 20px;">
+            <input type="text" id="playerNameInput" placeholder="이름 입력" style="padding: 10px; font-size: 16px; border-radius: 5px; border: none;">
+            <button id="saveRankingBtn" style="padding: 10px 20px; font-size: 16px; border-radius: 5px; cursor: pointer; background-color: #4CAF50; color: white; border: none;">저장</button>
+        </div>
         <button id="restartBtn">다시 시작</button>
     </div>
     <button id="settingsBtn">⚙️ 설정</button>
@@ -60,6 +64,7 @@
     </div>
     <div id="gameStatus"></div>
     <script src="physics.js"></script>
+    <script src="tankTypes.js"></script>
     <script src="tank.js"></script>
     <script src="main.js"></script>
 </body>
